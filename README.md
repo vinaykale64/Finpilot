@@ -6,13 +6,13 @@ Enter a stock or single-leg option position and get clear, jargon-free guidance 
 
 ## Features
 
-- **Stock positions** — P&L, scenarios with AI narratives, stock price chart (1W/1M/3M/YTD/1Y)
-- **Option positions** — Greeks (delta, gamma, theta, vega, rho), roll analysis with live chain data, all-in break-even
-- **Stock snapshot** — 52-week range bar, beta, volume vs average, forward/trailing P/E, YoY growth, short ratio
-- **Analyst ratings** — Buy/Hold/Sell consensus, price targets (mean/median/high/low), recent upgrades/downgrades
-- **Event timeline** — visual timeline to expiry (options) or 1 year out (stocks) with earnings, Fed meetings, ex-dividend dates
-- **AI narratives** — single LLM call covering all scenarios with an overall summary + per-scenario 2-line analysis
-- **Live data** — prices, option chains, expiry dates, strikes, and events via yfinance
+- **Stock & option positions** — P&L, actionable scenarios with AI narratives
+- **Stock price chart** — hourly for 1W/1M, daily for 3M/YTD/1Y, weekends hidden
+- **📊 Market context** (collapsible) — 52-week range, beta, volume, P/E, RSI, SMA20/50/200, volatility, performance, analyst ratings + price targets
+- **🗓️ Timeline & News** (collapsible) — event timeline to expiry/1Y with earnings, Fed meetings, ex-dividend dates; recent news headlines with links
+- **🔢 Position Greeks** (collapsible, options only) — delta, gamma, theta, vega, rho with plain-English explanations
+- **Your options** — rule-based scenarios with AI analysis (single LLM call, overall summary + per-scenario 2-liner)
+- **Live data** — prices, option chains, expiry dates, strikes via yfinance; technicals and news via Finviz
 
 ## Setup
 
@@ -50,7 +50,7 @@ Opens at http://localhost:8501.
 app.py              — Streamlit UI and analysis pipeline
 finpilot/
   models.py         — Data models (StockPosition, OptionPosition, etc.)
-  fetcher.py        — Live market data via yfinance
+  fetcher.py        — Live market data via yfinance + Finviz
   rules.py          — Scenario and roll analysis engine
   greeks.py         — Black-Scholes Greeks calculator
   llm.py            — Claude narrative generation via OpenRouter
@@ -64,4 +64,4 @@ finpilot/
 
 ## Tech stack
 
-Python 3.9 · Streamlit · yfinance · Plotly · OpenRouter (Claude)
+Python 3.9 · Streamlit · yfinance · Finviz · Plotly · OpenRouter (Claude)

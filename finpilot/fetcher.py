@@ -181,6 +181,76 @@ def fetch_events(
     return events
 
 
+def fetch_finviz_data(ticker: str) -> dict:
+    """
+    Fetch technical signals, performance, and news from Finviz.
+    Returns dict with keys: technicals, performance, news, recom.
+    Any field may be None if unavailable.
+    """
+    try:
+        from finvizfinance.quote import finvizfinance
+        stock = finvizfinance(ticker)
+        f = stock.ticker_fundament()
+
+        def _pct(val):
+            """Parse '12.34%' or '-5.67%' to float or None."""
+            try:
+                return float(str(val).replace("%", "").replace(",", "").strip())
+            except Exception:
+                return None
+
+        def _f(val):
+            try:
+                return float(str(val).replace(",", "").strip())
+            except Exception:
+                return None
+
+        technicals = {
+            "rsi14":      _f(f.get("RSI (14)")),
+            "sma20_pct":  _pct(f.get("SMA20")),
+            "sma50_pct":  _pct(f.get("SMA50")),
+            "sma200_pct": _pct(f.get("SMA200")),
+            "atr14":      _f(f.get("ATR (14)")),
+            "volatility_w": _pct(f.get("Volatility W")),
+            "volatility_m": _pct(f.get("Volatility M")),
+            "rel_volume":   _f(f.get("Rel Volume")),
+        }
+
+        performance = {
+            "perf_week":    _pct(f.get("Perf Week")),
+            "perf_month":   _pct(f.get("Perf Month")),
+            "perf_quarter": _pct(f.get("Perf Quarter")),
+            "perf_ytd":     _pct(f.get("Perf YTD")),
+            "perf_year":    _pct(f.get("Perf Year")),
+        }
+
+        recom = _f(f.get("Recom"))  # 1=Strong Buy, 5=Strong Sell
+
+        try:
+            news_df = stock.ticker_news()
+            news = []
+            for _, row in news_df.head(5).iterrows():
+                title = str(row.get("Title", "")).strip().replace("\n", " ").strip()
+                if title:
+                    news.append({
+                        "title": title,
+                        "source": str(row.get("Source", "")).strip(),
+                        "date": row.get("Date"),
+                        "link": str(row.get("Link", "")).strip(),
+                    })
+        except Exception:
+            news = []
+
+        return {
+            "technicals": technicals,
+            "performance": performance,
+            "recom": recom,
+            "news": news,
+        }
+    except Exception:
+        return {}
+
+
 def fetch_stock_snapshot(ticker: str) -> dict:
     """
     Fetch key stock metrics for context: 52w range, beta, volume, valuation.

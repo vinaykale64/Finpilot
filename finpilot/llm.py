@@ -123,6 +123,42 @@ def _build_snapshot_context(snapshot: dict) -> str:
     return " ".join(lines)
 
 
+def _build_finviz_context(finviz: dict) -> str:
+    if not finviz:
+        return ""
+    lines = []
+    tech = finviz.get("technicals") or {}
+    perf = finviz.get("performance") or {}
+    recom = finviz.get("recom")
+
+    rsi = tech.get("rsi14")
+    if rsi is not None:
+        rsi_label = "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral"
+        lines.append(f"RSI(14): {rsi:.1f} ({rsi_label}).")
+
+    sma_parts = []
+    for key, label in [("sma20_pct", "SMA20"), ("sma50_pct", "SMA50"), ("sma200_pct", "SMA200")]:
+        v = tech.get(key)
+        if v is not None:
+            sma_parts.append(f"{label} {v:+.1f}%")
+    if sma_parts:
+        lines.append("vs moving averages: " + ", ".join(sma_parts) + ".")
+
+    perf_parts = []
+    for key, label in [("perf_week", "1W"), ("perf_month", "1M"), ("perf_quarter", "3M"), ("perf_ytd", "YTD")]:
+        v = perf.get(key)
+        if v is not None:
+            perf_parts.append(f"{label}: {v:+.1f}%")
+    if perf_parts:
+        lines.append("Recent performance: " + ", ".join(perf_parts) + ".")
+
+    if recom is not None:
+        label = "Strong Buy" if recom <= 1.5 else "Buy" if recom <= 2.5 else "Hold" if recom <= 3.5 else "Sell"
+        lines.append(f"Analyst consensus score: {recom:.2f}/5.0 ({label}).")
+
+    return " ".join(lines)
+
+
 def generate_combined_analysis(
     scenarios: list,
     position: Union[StockPosition, OptionPosition],
@@ -132,6 +168,7 @@ def generate_combined_analysis(
     model: str = DEFAULT_MODEL,
     analyst: dict = None,
     snapshot: dict = None,
+    finviz: dict = None,
 ) -> dict:
     """
     Single LLM call covering all scenarios.
@@ -147,6 +184,7 @@ def generate_combined_analysis(
         position_context = _build_position_context(position, current_price, events)
         analyst_context = _build_analyst_context(analyst or {})
         snapshot_context = _build_snapshot_context(snapshot or {})
+        finviz_context = _build_finviz_context(finviz or {})
 
         scenarios_block = "\n".join(
             f"{i+1}. {s.action_label} — "
@@ -158,6 +196,7 @@ def generate_combined_analysis(
         user_message = (
             f"{position_context}\n\n"
             + (f"Stock snapshot: {snapshot_context}\n\n" if snapshot_context else "")
+            + (f"Technical signals: {finviz_context}\n\n" if finviz_context else "")
             + (f"Analyst data: {analyst_context}\n\n" if analyst_context else "")
             + f"The investor is weighing these options:\n{scenarios_block}\n\n"
             f"Respond with a JSON object with exactly two keys:\n"
@@ -207,10 +246,11 @@ def generate_all_narratives(
     model: str = DEFAULT_MODEL,
     analyst: dict = None,
     snapshot: dict = None,
+    finviz: dict = None,
 ) -> list:
     """Attach per-scenario narratives using a single combined LLM call."""
     result = generate_combined_analysis(
-        scenarios, position, current_price, events, api_key, model, analyst, snapshot
+        scenarios, position, current_price, events, api_key, model, analyst, snapshot, finviz
     )
     for i, scenario in enumerate(scenarios):
         scenario.narrative = result["summaries"][i]
