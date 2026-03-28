@@ -9,6 +9,23 @@ import pandas as pd
 
 from .models import MarketEvent, OptionPosition, StockPosition
 
+# FOMC meeting dates (last day of each meeting — decision day).
+# Source: federalreserve.gov. Update annually.
+_FOMC_DATES = [
+    # 2025
+    date(2025, 1, 29), date(2025, 3, 19), date(2025, 5, 7),
+    date(2025, 6, 18), date(2025, 7, 30), date(2025, 9, 17),
+    date(2025, 10, 29), date(2025, 12, 10),
+    # 2026
+    date(2026, 1, 28), date(2026, 3, 18), date(2026, 4, 29),
+    date(2026, 6, 17), date(2026, 7, 29), date(2026, 9, 16),
+    date(2026, 10, 28), date(2026, 12, 9),
+    # 2027 (preliminary — confirm at federalreserve.gov)
+    date(2027, 1, 27), date(2027, 3, 17), date(2027, 5, 5),
+    date(2027, 6, 16), date(2027, 7, 28), date(2027, 9, 15),
+    date(2027, 10, 27), date(2027, 12, 8),
+]
+
 
 def fetch_current_price(ticker: str) -> Optional[float]:
     """Return the latest market price for a ticker."""
@@ -72,20 +89,59 @@ def fetch_events(
         info = t.info
 
         # --- Earnings dates ---
-        cal = t.calendar
-        if cal is not None and not cal.empty:
-            # yfinance returns a DataFrame with dates as columns
-            for col in cal.columns:
-                try:
-                    earnings_date = pd.Timestamp(col).date()
-                except Exception:
-                    continue
-                if today <= earnings_date <= horizon:
+        known_earnings: list[date] = []
+        try:
+            ed = t.earnings_dates  # property, not callable
+            if ed is not None and not ed.empty:
+                for ts in ed.index:
+                    try:
+                        known_earnings.append(pd.Timestamp(ts).normalize().date())
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        # Fallback: calendar dict (returns next confirmed date)
+        if not known_earnings:
+            try:
+                cal = t.calendar
+                if isinstance(cal, dict):
+                    for d in cal.get("Earnings Date", []):
+                        try:
+                            known_earnings.append(pd.Timestamp(d).date())
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        if known_earnings:
+            known_earnings.sort()
+
+            # Add any confirmed future dates
+            for d in known_earnings:
+                if today <= d <= horizon:
                     events.append(MarketEvent(
                         event_type="earnings",
-                        date=earnings_date,
-                        label=f"Earnings on {earnings_date.strftime('%b %d, %Y')}",
+                        date=d,
+                        label=f"Earnings on {d.strftime('%b %d, %Y')}",
                     ))
+
+            # Project forward quarterly from the latest known date
+            # until we cover the full horizon
+            latest = max(known_earnings)
+            next_est = latest + timedelta(days=91)
+            while next_est <= horizon:
+                already_covered = any(
+                    abs((next_est - e.date).days) <= 21
+                    for e in events if e.event_type == "earnings"
+                )
+                if not already_covered:
+                    events.append(MarketEvent(
+                        event_type="earnings",
+                        date=next_est,
+                        label=f"Earnings ~{next_est.strftime('%b %d, %Y')} (est.)",
+                    ))
+                next_est += timedelta(days=91)
 
         # --- Ex-dividend date ---
         ex_div_raw = info.get("exDividendDate")
@@ -112,8 +168,117 @@ def fetch_events(
     except Exception:
         pass
 
+    # --- Fed meeting dates (hardcoded from FOMC calendar) ---
+    for fomc_date in _FOMC_DATES:
+        if today <= fomc_date <= horizon:
+            events.append(MarketEvent(
+                event_type="fed_meeting",
+                date=fomc_date,
+                label=f"Fed decision on {fomc_date.strftime('%b %d, %Y')}",
+            ))
+
     events.sort(key=lambda e: e.date)
     return events
+
+
+def fetch_stock_snapshot(ticker: str) -> dict:
+    """
+    Fetch key stock metrics for context: 52w range, beta, volume, valuation.
+    Returns a dict — any field may be None if unavailable.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        return {
+            "week52_high": info.get("fiftyTwoWeekHigh"),
+            "week52_low":  info.get("fiftyTwoWeekLow"),
+            "current_price": info.get("currentPrice"),
+            "beta":          info.get("beta"),
+            "forward_pe":    info.get("forwardPE"),
+            "trailing_pe":   info.get("trailingPE"),
+            "volume":        info.get("volume"),
+            "avg_volume":    info.get("averageVolume"),
+            "earnings_growth": info.get("earningsGrowth"),
+            "revenue_growth":  info.get("revenueGrowth"),
+            "short_ratio":   info.get("shortRatio"),
+            "market_cap":    info.get("marketCap"),
+        }
+    except Exception:
+        return {}
+
+
+def fetch_analyst_data(ticker: str) -> dict:
+    """
+    Fetch analyst consensus ratings and price targets.
+    Returns a dict with keys: summary, price_targets, recent_changes.
+    Any field may be None if unavailable.
+    """
+    try:
+        t = yf.Ticker(ticker)
+        result = {"summary": None, "price_targets": None, "recent_changes": None}
+
+        # Ratings summary (current month)
+        try:
+            rec = t.recommendations_summary
+            if rec is not None and not rec.empty:
+                row = rec[rec["period"] == "0m"].iloc[0]
+                result["summary"] = {
+                    "strong_buy": int(row["strongBuy"]),
+                    "buy": int(row["buy"]),
+                    "hold": int(row["hold"]),
+                    "sell": int(row["sell"]),
+                    "strong_sell": int(row["strongSell"]),
+                }
+        except Exception:
+            pass
+
+        # Price targets
+        try:
+            pt = t.analyst_price_targets
+            if pt and pt.get("mean"):
+                result["price_targets"] = {
+                    "current": round(pt["current"], 2),
+                    "mean": round(pt["mean"], 2),
+                    "high": round(pt["high"], 2),
+                    "low": round(pt["low"], 2),
+                    "median": round(pt["median"], 2),
+                }
+        except Exception:
+            pass
+
+        # Recent upgrades/downgrades (last 5)
+        try:
+            ud = t.upgrades_downgrades
+            if ud is not None and not ud.empty:
+                recent = ud.head(5).reset_index()
+                changes = []
+                for _, row in recent.iterrows():
+                    changes.append({
+                        "date": pd.Timestamp(row["GradeDate"]).date(),
+                        "firm": row.get("Firm", ""),
+                        "to_grade": row.get("ToGrade", ""),
+                        "from_grade": row.get("FromGrade", ""),
+                        "action": row.get("Action", ""),
+                    })
+                result["recent_changes"] = changes
+        except Exception:
+            pass
+
+        return result
+    except Exception:
+        return {"summary": None, "price_targets": None, "recent_changes": None}
+
+
+def fetch_strikes_for_expiry(ticker: str, expiry: date, option_type: str) -> list[float]:
+    """Return sorted list of available strike prices for a given expiry and option type."""
+    try:
+        t = yf.Ticker(ticker)
+        chain = t.option_chain(expiry.strftime("%Y-%m-%d"))
+        df = chain.calls if option_type == "call" else chain.puts
+        strikes = sorted(df["strike"].dropna().unique().tolist())
+        return [float(s) for s in strikes]
+    except Exception:
+        return []
 
 
 def fetch_expiry_dates(ticker: str) -> list[date]:

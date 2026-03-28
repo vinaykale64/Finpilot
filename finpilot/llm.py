@@ -1,7 +1,8 @@
 """
 LLM narrative layer via OpenRouter (OpenAI-compatible endpoint).
-Generates plain-English explanations for each scenario.
+Generates a single combined analysis covering all scenarios.
 """
+import json
 from typing import Union
 from openai import OpenAI
 
@@ -15,9 +16,8 @@ Your job is to explain investment options in simple, conversational language —
 
 Rules:
 - Never use jargon without explaining it immediately in plain terms
-- Be direct and concise: 2-3 sentences max
+- Be direct and concise
 - Frame everything as possibilities the user can consider, never as definitive advice
-- Always end with: "This is not financial advice."
 - Do not predict future price direction
 - Be empathetic — investing is stressful, your tone should be calm and clear"""
 
@@ -25,7 +25,7 @@ Rules:
 def _build_position_context(
     position: Union[StockPosition, OptionPosition],
     current_price: float,
-    events: list[MarketEvent],
+    events: list,
 ) -> str:
     lines = []
 
@@ -39,7 +39,7 @@ def _build_position_context(
             f"({sign} {abs(pnl_pct):.1f}%, {'+' if pnl >= 0 else ''}{pnl:,.2f} total)."
         )
     else:
-        current_mark = current_price  # current_price passed in as mark for options
+        current_mark = current_price
         pnl = position.pnl(current_mark)
         sign = "up" if pnl >= 0 else "down"
         lines.append(
@@ -58,35 +58,115 @@ def _build_position_context(
     return " ".join(lines)
 
 
-def generate_narrative(
-    scenario: Scenario,
+def _build_analyst_context(analyst: dict) -> str:
+    if not analyst:
+        return ""
+    lines = []
+    pt = analyst.get("price_targets")
+    if pt:
+        lines.append(
+            f"Analyst price targets: mean ${pt['mean']}, median ${pt['median']}, "
+            f"high ${pt['high']}, low ${pt['low']} (current stock price: ${pt['current']})."
+        )
+    s = analyst.get("summary")
+    if s:
+        total = s["strong_buy"] + s["buy"] + s["hold"] + s["sell"] + s["strong_sell"]
+        if total > 0:
+            lines.append(
+                f"Analyst ratings ({total} analysts): "
+                f"Strong Buy {s['strong_buy']}, Buy {s['buy']}, Hold {s['hold']}, "
+                f"Sell {s['sell']}, Strong Sell {s['strong_sell']}."
+            )
+    changes = analyst.get("recent_changes")
+    if changes:
+        change_strs = [
+            f"{c['firm']} ({c['action']}: {c['from_grade']} → {c['to_grade']})"
+            for c in changes[:3] if c.get("firm")
+        ]
+        if change_strs:
+            lines.append("Recent analyst actions: " + "; ".join(change_strs) + ".")
+    return " ".join(lines)
+
+
+def _build_snapshot_context(snapshot: dict) -> str:
+    if not snapshot:
+        return ""
+    lines = []
+    low = snapshot.get("week52_low")
+    high = snapshot.get("week52_high")
+    price = snapshot.get("current_price")
+    if low and high and price:
+        pct_range = (price - low) / (high - low) * 100 if high != low else 50
+        lines.append(f"52-week range: ${low:,.2f} – ${high:,.2f} (stock is at {pct_range:.0f}% of its range).")
+    beta = snapshot.get("beta")
+    if beta:
+        lines.append(f"Beta: {beta:.2f} ({'more volatile' if beta > 1 else 'less volatile'} than the market).")
+    vol = snapshot.get("volume")
+    avg_vol = snapshot.get("avg_volume")
+    if vol and avg_vol and avg_vol > 0:
+        vol_ratio = vol / avg_vol
+        lines.append(f"Today's volume is {vol_ratio:.1f}x the average ({vol:,.0f} vs avg {avg_vol:,.0f}).")
+    fpe = snapshot.get("forward_pe")
+    tpe = snapshot.get("trailing_pe")
+    if fpe:
+        lines.append(f"Forward P/E: {fpe:.1f}" + (f", Trailing P/E: {tpe:.1f}." if tpe else "."))
+    eg = snapshot.get("earnings_growth")
+    rg = snapshot.get("revenue_growth")
+    if eg or rg:
+        parts = []
+        if eg: parts.append(f"earnings growth {eg*100:.0f}%")
+        if rg: parts.append(f"revenue growth {rg*100:.0f}%")
+        lines.append("YoY: " + ", ".join(parts) + ".")
+    sr = snapshot.get("short_ratio")
+    if sr:
+        lines.append(f"Short ratio: {sr:.1f} days to cover.")
+    return " ".join(lines)
+
+
+def generate_combined_analysis(
+    scenarios: list,
     position: Union[StockPosition, OptionPosition],
     current_price: float,
-    events: list[MarketEvent],
+    events: list,
     api_key: str,
     model: str = DEFAULT_MODEL,
-) -> str:
+    analyst: dict = None,
+    snapshot: dict = None,
+) -> dict:
     """
-    Call OpenRouter to generate a plain-English narrative for a scenario.
-    Returns the narrative string. On failure, returns the tradeoff as fallback.
+    Single LLM call covering all scenarios.
+    Returns {
+        "overall": str,           # 2-3 sentence overall context
+        "summaries": [str, ...]   # one 2-line summary per scenario, same order
+    }
+    On failure returns empty strings.
     """
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=OPENROUTER_BASE_URL,
-        )
+        client = OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
 
         position_context = _build_position_context(position, current_price, events)
+        analyst_context = _build_analyst_context(analyst or {})
+        snapshot_context = _build_snapshot_context(snapshot or {})
 
-        key_numbers_str = ", ".join(f"{k}: {v}" for k, v in scenario.key_numbers.items())
+        scenarios_block = "\n".join(
+            f"{i+1}. {s.action_label} — "
+            + ", ".join(f"{k}: {v}" for k, v in s.key_numbers.items())
+            + f" | Trade-off: {s.tradeoff}"
+            for i, s in enumerate(scenarios)
+        )
 
         user_message = (
             f"{position_context}\n\n"
-            f"Scenario the investor is considering: \"{scenario.action_label}\"\n"
-            f"Key numbers: {key_numbers_str}\n"
-            f"Trade-off: {scenario.tradeoff}\n\n"
-            f"Write a 2-3 sentence plain-English explanation of this option for a retail investor. "
-            f"Reference the specific numbers above. End with 'This is not financial advice.'"
+            + (f"Stock snapshot: {snapshot_context}\n\n" if snapshot_context else "")
+            + (f"Analyst data: {analyst_context}\n\n" if analyst_context else "")
+            + f"The investor is weighing these options:\n{scenarios_block}\n\n"
+            f"Respond with a JSON object with exactly two keys:\n"
+            f"- \"overall\": 2-3 sentences of big-picture context about this position and what matters most right now. "
+            f"End with 'This is not financial advice.'\n"
+            f"- \"summaries\": a JSON array of exactly {len(scenarios)} strings, one per option above (same order). "
+            f"Each string is 1-2 sentences covering the key trade-off for that specific option. "
+            f"Reference the specific numbers. No financial advice disclaimer needed per item.\n\n"
+            f"Return only valid JSON, no markdown."
         )
 
         response = client.chat.completions.create(
@@ -95,27 +175,43 @@ def generate_narrative(
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
-            max_tokens=200,
+            max_tokens=600,
             temperature=0.4,
         )
 
-        return response.choices[0].message.content.strip()
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if model wraps in them
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+            raw = raw.rstrip("`").strip()
+
+        data = json.loads(raw)
+        summaries = data.get("summaries", [])
+        # Pad or trim to match scenario count
+        while len(summaries) < len(scenarios):
+            summaries.append("")
+        summaries = summaries[:len(scenarios)]
+
+        return {"overall": data.get("overall", ""), "summaries": summaries}
 
     except Exception:
-        return f"{scenario.tradeoff} This is not financial advice."
+        return {"overall": "", "summaries": [""] * len(scenarios)}
 
 
 def generate_all_narratives(
-    scenarios: list[Scenario],
+    scenarios: list,
     position: Union[StockPosition, OptionPosition],
     current_price: float,
-    events: list[MarketEvent],
+    events: list,
     api_key: str,
     model: str = DEFAULT_MODEL,
-) -> list[Scenario]:
-    """Fill in narrative for each scenario and return updated list."""
-    for scenario in scenarios:
-        scenario.narrative = generate_narrative(
-            scenario, position, current_price, events, api_key, model
-        )
-    return scenarios
+    analyst: dict = None,
+    snapshot: dict = None,
+) -> list:
+    """Attach per-scenario narratives using a single combined LLM call."""
+    result = generate_combined_analysis(
+        scenarios, position, current_price, events, api_key, model, analyst, snapshot
+    )
+    for i, scenario in enumerate(scenarios):
+        scenario.narrative = result["summaries"][i]
+    return scenarios, result.get("overall", "")

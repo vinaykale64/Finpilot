@@ -15,9 +15,12 @@ from finpilot.models import StockPosition, OptionPosition, MarketEvent, Scenario
 from finpilot.fetcher import (
     fetch_current_price,
     fetch_expiry_dates,
+    fetch_strikes_for_expiry,
     fetch_option_mark,
     fetch_events,
     fetch_options_chain_for_rolls,
+    fetch_analyst_data,
+    fetch_stock_snapshot,
 )
 from finpilot.rules import stock_scenarios, option_scenarios, rank_roll_candidates
 from finpilot.llm import generate_all_narratives
@@ -46,6 +49,15 @@ EVENT_ICON = {
     "earnings": "📊",
     "ex_dividend": "💵",
     "expiry": "⏰",
+    "fed_meeting": "🏦",
+}
+
+# Timeline marker colors per event type
+EVENT_COLOR = {
+    "earnings":    "#ffa500",
+    "ex_dividend": "#4b9fff",
+    "expiry":      "#ff4b4b",
+    "fed_meeting": "#a259ff",
 }
 
 # ---------------------------------------------------------------------------
@@ -59,6 +71,12 @@ if "option_expiries" not in st.session_state:
     st.session_state.option_expiries = []   # list[date]
 if "option_expiry_ticker" not in st.session_state:
     st.session_state.option_expiry_ticker = ""
+if "option_ticker_price" not in st.session_state:
+    st.session_state.option_ticker_price = 200.0
+if "option_strikes" not in st.session_state:
+    st.session_state.option_strikes = []
+if "option_selected_expiry" not in st.session_state:
+    st.session_state.option_selected_expiry = None
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +87,12 @@ with st.sidebar:
     st.caption("Know your options.")
     st.divider()
 
-    if OPENROUTER_KEY:
-        st.success("OpenRouter key loaded ✓")
-    else:
-        st.warning("No OPENROUTER_API_KEY found in .env — AI explanations disabled.")
+    st.caption(
+        "⚠️ **Disclaimer:** Finpilot is an informational tool only. Nothing here constitutes "
+        "financial advice, a recommendation to buy or sell, or a solicitation of any kind. "
+        "All analysis is generated automatically and may not reflect current market conditions. "
+        "Always do your own research and consult a qualified financial advisor."
+    )
 
 
 
@@ -89,6 +109,8 @@ def render_event_banner(event: MarketEvent):
         detail = "Stock prices can move sharply. Options often get more expensive before earnings, then drop right after."
     elif event.event_type == "ex_dividend":
         detail = "If you're short a call option, early assignment risk increases around this date."
+    elif event.event_type == "fed_meeting":
+        detail = "Fed rate decisions can move the whole market. High uncertainty before the meeting often raises option prices."
     else:
         detail = "After this date the option has no value — decisions become urgent."
 
@@ -100,6 +122,149 @@ def render_event_banner(event: MarketEvent):
         </div>""",
         unsafe_allow_html=True,
     )
+
+
+def render_stock_snapshot(snapshot: dict, current_price: float):
+    if not snapshot:
+        return
+    low = snapshot.get("week52_low")
+    high = snapshot.get("week52_high")
+    beta = snapshot.get("beta")
+    vol = snapshot.get("volume")
+    avg_vol = snapshot.get("avg_volume")
+    fpe = snapshot.get("forward_pe")
+    tpe = snapshot.get("trailing_pe")
+    eg = snapshot.get("earnings_growth")
+    rg = snapshot.get("revenue_growth")
+    sr = snapshot.get("short_ratio")
+
+    cols = st.columns(4)
+
+    # 52-week range with mini progress bar
+    with cols[0]:
+        if low and high:
+            pct = (current_price - low) / (high - low) * 100 if high != low else 50
+            pct = max(0, min(100, pct))
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>52-week range</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='font-size:0.82em'>${low:,.0f} — ${high:,.0f}</div>"
+                f"<div style='background:#333; border-radius:4px; height:6px; margin:4px 0'>"
+                f"<div style='background:#00c57a; width:{pct:.0f}%; height:6px; border-radius:4px'></div></div>"
+                f"<div style='font-size:0.75em; color:#888'>{pct:.0f}% of range</div>",
+                unsafe_allow_html=True,
+            )
+
+    with cols[1]:
+        if beta is not None:
+            color = "#ffa500" if beta > 1.3 else "#00c57a" if beta < 0.8 else "#888"
+            label = "high volatility" if beta > 1.3 else "low volatility" if beta < 0.8 else "avg volatility"
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Beta</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:1.1em; font-weight:600'>{beta:.2f}</div>"
+                        f"<div style='font-size:0.75em; color:{color}'>{label}</div>", unsafe_allow_html=True)
+        if sr is not None:
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>Short ratio</div>"
+                        f"<div style='font-size:0.9em'>{sr:.1f} days to cover</div>", unsafe_allow_html=True)
+
+    with cols[2]:
+        if vol and avg_vol:
+            ratio = vol / avg_vol
+            vol_color = "#ffa500" if ratio > 1.5 else "#888"
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Volume</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size:0.9em; font-weight:600; color:{vol_color}'>{ratio:.1f}x avg</div>"
+                        f"<div style='font-size:0.75em; color:#888'>{vol/1e6:.1f}M vs {avg_vol/1e6:.1f}M avg</div>",
+                        unsafe_allow_html=True)
+        if eg is not None or rg is not None:
+            parts = []
+            if eg is not None: parts.append(f"EPS {eg*100:+.0f}%")
+            if rg is not None: parts.append(f"Rev {rg*100:+.0f}%")
+            g_color = "#00c57a" if (eg or 0) > 0 else "#ff4b4b"
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>YoY growth</div>"
+                        f"<div style='font-size:0.9em; color:{g_color}'>{' · '.join(parts)}</div>",
+                        unsafe_allow_html=True)
+
+    with cols[3]:
+        if fpe is not None:
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Forward P/E</div>"
+                        f"<div style='font-size:1.1em; font-weight:600'>{fpe:.1f}x</div>", unsafe_allow_html=True)
+        if tpe is not None:
+            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>Trailing P/E</div>"
+                        f"<div style='font-size:0.9em'>{tpe:.1f}x</div>", unsafe_allow_html=True)
+
+
+def render_timeline(events: list, end_date: date, end_label: str):
+    """Horizontal timeline from today to end_date with event markers."""
+    today = date.today()
+    total_days = max((end_date - today).days, 1)
+
+    fig = go.Figure()
+    fig.add_shape(
+        type="line",
+        x0=today, x1=end_date, y0=0, y1=0,
+        line=dict(color="#444", width=3),
+    )
+    fig.add_trace(go.Scatter(
+        x=[today], y=[0],
+        mode="markers+text",
+        marker=dict(size=12, color="#00c57a", symbol="circle"),
+        text=["Today"], textposition="top center",
+        textfont=dict(size=11, color="#00c57a"),
+        hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=[end_date], y=[0],
+        mode="markers+text",
+        marker=dict(size=12, color="#ff4b4b", symbol="circle"),
+        text=[f"{end_label}<br>{end_date.strftime('%b %d')}"], textposition="top center",
+        textfont=dict(size=11, color="#ff4b4b"),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    non_expiry_events = [e for e in events if e.event_type != "expiry"]
+    for i, event in enumerate(non_expiry_events):
+        color = EVENT_COLOR.get(event.event_type, "#888")
+        icon = EVENT_ICON.get(event.event_type, "•")
+        y_pos = 0.6 if i % 2 == 0 else -0.6
+        text_pos = "top center" if y_pos > 0 else "bottom center"
+
+        fig.add_shape(
+            type="line",
+            x0=event.date, x1=event.date, y0=0, y1=y_pos * 0.85,
+            line=dict(color=color, width=1.5, dash="dot"),
+        )
+        fig.add_trace(go.Scatter(
+            x=[event.date], y=[y_pos],
+            mode="markers+text",
+            marker=dict(size=10, color=color, symbol="diamond"),
+            text=[f"{icon} {event.date.strftime('%b %d')}"],
+            textposition=text_pos,
+            textfont=dict(size=10, color=color),
+            hovertemplate=f"<b>{event.label}</b><extra></extra>",
+            showlegend=False,
+        ))
+
+    days_left = (end_date - today).days
+    fig.update_layout(
+        height=160,
+        margin=dict(l=10, r=10, t=10, b=10),
+        xaxis=dict(
+            range=[today - timedelta(days=total_days * 0.03),
+                   end_date + timedelta(days=total_days * 0.03)],
+            showgrid=False, zeroline=False, showticklabels=False,
+            rangebreaks=[dict(bounds=["sat", "mon"])],
+        ),
+        yaxis=dict(range=[-1.3, 1.3], showgrid=False,
+                   zeroline=False, showticklabels=False),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        hovermode="closest",
+        annotations=[dict(
+            x=end_date, y=-1.2,
+            text=f"{days_left} days",
+            showarrow=False, font=dict(size=11, color="#888"),
+            xanchor="center",
+        )],
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def render_scenario_card(scenario: Scenario, index: int):
@@ -121,7 +286,7 @@ def render_scenario_card(scenario: Scenario, index: int):
         tradeoff_safe = scenario.tradeoff.replace("$", r"\$")
         st.caption(tradeoff_safe)
         if scenario.narrative:
-            st.info(scenario.narrative.replace("$", r"\$"), icon="💬")
+            st.caption(scenario.narrative.replace("$", r"\$"))
 
 
 def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
@@ -135,11 +300,15 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
             return result
         events = fetch_events(position.ticker, position)
         scenarios = stock_scenarios(position, current_price, events)
+        analyst = fetch_analyst_data(position.ticker)
+        snapshot = fetch_stock_snapshot(position.ticker)
         result.update({
             "current_price": current_price,
             "current_mark": None,
             "events": events,
             "scenarios": scenarios,
+            "analyst": analyst,
+            "snapshot": snapshot,
         })
 
     else:
@@ -188,6 +357,8 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
         theta_per_day = abs(greeks.theta) if greeks else None
         scenarios = option_scenarios(position, current_mark, current_price, events, roll_candidates, theta_per_day)
 
+        analyst = fetch_analyst_data(position.ticker)
+        snapshot = fetch_stock_snapshot(position.ticker)
         result.update({
             "current_price": current_price,
             "current_mark": current_mark,
@@ -195,17 +366,22 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
             "roll_candidates": roll_candidates,
             "scenarios": scenarios,
             "greeks": greeks,
+            "snapshot": snapshot,
             "iv_source": "live" if iv else "estimated",
+            "analyst": analyst,
         })
 
+    result["overall_analysis"] = ""
     if OPENROUTER_KEY:
-        result["scenarios"] = generate_all_narratives(
+        result["scenarios"], result["overall_analysis"] = generate_all_narratives(
             result["scenarios"],
             position,
             result["current_mark"] if isinstance(position, OptionPosition) else result["current_price"],
             result["events"],
             OPENROUTER_KEY,
             st.session_state.selected_model,
+            result.get("analyst"),
+            result.get("snapshot"),
         )
 
     return result
@@ -214,19 +390,6 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
 # ---------------------------------------------------------------------------
 # Main — Header
 # ---------------------------------------------------------------------------
-st.title("✈️ Finpilot")
-st.caption("Enter your position and see your options — in plain English.")
-
-with st.expander("⚠️ Disclaimer", expanded=False):
-    st.warning(
-        "Finpilot is an informational tool only. Nothing on this app constitutes financial advice, "
-        "a recommendation to buy or sell any security, or a solicitation of any kind. "
-        "All analysis is generated automatically and may not reflect current market conditions. "
-        "Always do your own research and consult a qualified financial advisor before making investment decisions."
-    )
-
-st.divider()
-
 # ---------------------------------------------------------------------------
 # Add Position form
 # ---------------------------------------------------------------------------
@@ -286,33 +449,60 @@ with tab_option:
                 if not expiries:
                     st.error(f"No option expiry dates found for {o_ticker_load}.")
                 else:
+                    price = fetch_current_price(o_ticker_load) or 200.0
                     st.session_state.option_expiries = expiries
                     st.session_state.option_expiry_ticker = o_ticker_load
+                    st.session_state.option_ticker_price = float(price)
 
-    # Step 2 — rest of the form (shown once expiries are loaded)
+    # Step 2 — expiry + type selectors (outside form so strikes can update dynamically)
     if st.session_state.option_expiries and st.session_state.option_expiry_ticker == o_ticker_load:
+        pre_col1, pre_col2 = st.columns(2)
+        with pre_col1:
+            o_type = st.selectbox("Option Type", ["Call", "Put"], key="o_type").lower()
+        with pre_col2:
+            expiry_options = st.session_state.option_expiries
+            expiry_labels = [e.strftime("%b %d, %Y") for e in expiry_options]
+            o_expiry_idx = st.selectbox("Expiry date", range(len(expiry_labels)), format_func=lambda i: expiry_labels[i], key="o_expiry_idx")
+
+        o_expiry = expiry_options[o_expiry_idx]
+
+        # Fetch strikes whenever expiry or type changes
+        cache_key = (o_ticker_load, o_expiry, o_type)
+        if st.session_state.option_selected_expiry != cache_key:
+            with st.spinner("Loading strikes..."):
+                strikes = fetch_strikes_for_expiry(o_ticker_load, o_expiry, o_type)
+                st.session_state.option_strikes = strikes
+                st.session_state.option_selected_expiry = cache_key
+
+        # Step 3 — main form
         with st.form("option_form"):
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                o_type = st.selectbox("Call or Put", ["call", "put"])
-                o_position = st.selectbox("Long (bought) or Short (sold)", ["long", "short"])
+                strikes_available = st.session_state.option_strikes
+                current_price = st.session_state.option_ticker_price
+                # Default to strike closest to current price
+                if strikes_available:
+                    closest_idx = min(range(len(strikes_available)), key=lambda i: abs(strikes_available[i] - current_price))
+                    o_strike = st.selectbox(
+                        "Strike price ($)",
+                        strikes_available,
+                        index=closest_idx,
+                        format_func=lambda s: f"${s:,.2f}",
+                    )
+                else:
+                    o_strike = st.number_input("Strike price ($)", min_value=0.01, value=current_price, step=0.50)
+                o_position = "long"
             with col2:
-                o_strike = st.number_input("Strike price ($)", min_value=0.01, value=200.0, step=0.50)
-                expiry_options = st.session_state.option_expiries
-                expiry_labels = [e.strftime("%b %d, %Y") for e in expiry_options]
-                o_expiry_idx = st.selectbox("Expiry date", range(len(expiry_labels)), format_func=lambda i: expiry_labels[i])
-            with col3:
                 o_premium = st.number_input(
                     "Premium paid per share ($)",
                     min_value=0.01, value=5.00, step=0.05,
-                    help="The price per share you paid/received. Multiply by 100 for total contract cost.",
+                    help="The price per share you paid. Multiply by 100 for total contract cost.",
                 )
                 o_contracts = st.number_input("Number of contracts", min_value=1, value=1, step=1)
 
             submitted_option = st.form_submit_button("Fetch & Analyze", use_container_width=True)
 
         if submitted_option:
-            o_expiry = expiry_options[o_expiry_idx]
             with st.spinner(f"Fetching data for {o_ticker_load} options..."):
                 position = OptionPosition(
                     ticker=o_ticker_load,
@@ -458,12 +648,6 @@ else:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-    # --- Events ---
-    if events:
-        with st.expander(f"📅 Upcoming events ({len(events)})", expanded=True):
-            for event in events:
-                render_event_banner(event)
-
     # --- Greeks (options only) ---
     if isinstance(pos, OptionPosition) and entry.get("greeks"):
         g = entry["greeks"]
@@ -492,10 +676,83 @@ else:
         )
         st.divider()
 
+    # --- Stock snapshot ---
+    snapshot = entry.get("snapshot", {})
+    if snapshot:
+        st.markdown("### Stock snapshot")
+        render_stock_snapshot(snapshot, current_price)
+
+    # --- Timeline ---
+    st.markdown("### Timeline")
+    if isinstance(pos, OptionPosition):
+        render_timeline(events, pos.expiry, "Expiry")
+    else:
+        stock_horizon = date.today() + timedelta(days=365)
+        render_timeline(events, stock_horizon, "1 year out")
+
+    # --- Analyst Ratings ---
+    analyst = entry.get("analyst", {})
+    pt = analyst.get("price_targets") if analyst else None
+    summary = analyst.get("summary") if analyst else None
+    changes = analyst.get("recent_changes") if analyst else None
+
+    if pt or summary or changes:
+        st.markdown("### Analyst ratings")
+        col_a, col_b = st.columns([1, 1])
+
+        with col_a:
+            if summary:
+                total = summary["strong_buy"] + summary["buy"] + summary["hold"] + summary["sell"] + summary["strong_sell"]
+                bullish = summary["strong_buy"] + summary["buy"]
+                rows = "".join([
+                    f"<tr><td style='color:#00c57a; padding:2px 10px 2px 0'>Strong Buy</td><td style='font-weight:600'>{summary['strong_buy']}</td></tr>",
+                    f"<tr><td style='color:#7ec87e; padding:2px 10px 2px 0'>Buy</td><td style='font-weight:600'>{summary['buy']}</td></tr>",
+                    f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Hold</td><td style='font-weight:600'>{summary['hold']}</td></tr>",
+                    f"<tr><td style='color:#ffa07a; padding:2px 10px 2px 0'>Sell</td><td style='font-weight:600'>{summary['sell']}</td></tr>",
+                    f"<tr><td style='color:#ff4b4b; padding:2px 10px 2px 0'>Strong Sell</td><td style='font-weight:600'>{summary['strong_sell']}</td></tr>",
+                ])
+                st.markdown(
+                    f"<div style='font-size:0.85em; margin-bottom:4px; color:#aaa'>{bullish}/{total} analysts bullish</div>"
+                    f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
+                    unsafe_allow_html=True,
+                )
+
+        with col_b:
+            if pt:
+                current_price = entry.get("current_price", pt["current"])
+                upside = ((pt["mean"] - current_price) / current_price * 100)
+                upside_color = "#00c57a" if upside >= 0 else "#ff4b4b"
+                rows = "".join([
+                    f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Mean target</td><td style='font-weight:600'>${pt['mean']:,.2f} <span style='color:{upside_color}; font-size:0.85em'>({upside:+.1f}%)</span></td></tr>",
+                    f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Median target</td><td style='font-weight:600'>${pt['median']:,.2f}</td></tr>",
+                    f"<tr><td style='color:#888; padding:2px 10px 2px 0'>High target</td><td style='font-weight:600'>${pt['high']:,.2f}</td></tr>",
+                    f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Low target</td><td style='font-weight:600'>${pt['low']:,.2f}</td></tr>",
+                ])
+                st.markdown(
+                    f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
+                    unsafe_allow_html=True,
+                )
+            if changes:
+                st.markdown("<div style='font-size:0.8em; color:#aaa; margin-top:10px'>Recent actions</div>", unsafe_allow_html=True)
+                for c in changes[:4]:
+                    action_color = "#00c57a" if c["action"] in ("upgrade", "init") else "#ffa500" if c["action"] == "main" else "#ff4b4b"
+                    st.markdown(
+                        f"<div style='font-size:0.82em; margin:2px 0'>"
+                        f"<span style='color:{action_color}'>●</span> "
+                        f"<strong>{c['firm']}</strong> — {c['to_grade']}"
+                        f"{'  ← ' + c['from_grade'] if c['from_grade'] else ''}"
+                        f" <span style='color:#666'>({c['date'].strftime('%b %d')})</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
     # --- Scenarios ---
     st.markdown("### Your options")
     if not OPENROUTER_KEY:
         st.caption("💡 Add OPENROUTER_API_KEY to your .env file to get AI explanations.")
+
+    overall = entry.get("overall_analysis", "")
+    if overall:
+        st.info(overall.replace("$", r"\$"), icon="💬")
 
     for i, scenario in enumerate(scenarios):
         render_scenario_card(scenario, i)

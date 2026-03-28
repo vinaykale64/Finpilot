@@ -1,5 +1,6 @@
 streamlit>=1.35.0
 python-dotenv>=1.0.0
+lxml>=5.0.0
 yfinance>=0.2.40
 openai>=1.30.0
 pandas>=2.0.0

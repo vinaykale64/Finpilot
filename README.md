@@ -6,11 +6,13 @@ Enter a stock or single-leg option position and get clear, jargon-free guidance 
 
 ## Features
 
-- **Stock positions** — P&L, upcoming events (earnings, ex-dividend), and actionable scenarios with AI narratives
-- **Option positions** — Greeks (delta, gamma, theta, vega, rho), roll analysis with live options chain data, all-in break-even calculations
-- **Stock price chart** — hourly for 1W/1M, daily for 3M/YTD/1Y, with weekends hidden
-- **Live data** — prices, option chains, and expiry dates via yfinance
-- **AI narratives** — plain-English explanations of each scenario via Claude (claude-sonnet-4-6 through OpenRouter)
+- **Stock positions** — P&L, scenarios with AI narratives, stock price chart (1W/1M/3M/YTD/1Y)
+- **Option positions** — Greeks (delta, gamma, theta, vega, rho), roll analysis with live chain data, all-in break-even
+- **Stock snapshot** — 52-week range bar, beta, volume vs average, forward/trailing P/E, YoY growth, short ratio
+- **Analyst ratings** — Buy/Hold/Sell consensus, price targets (mean/median/high/low), recent upgrades/downgrades
+- **Event timeline** — visual timeline to expiry (options) or 1 year out (stocks) with earnings, Fed meetings, ex-dividend dates
+- **AI narratives** — single LLM call covering all scenarios with an overall summary + per-scenario 2-line analysis
+- **Live data** — prices, option chains, expiry dates, strikes, and events via yfinance
 
 ## Setup
 
@@ -32,7 +34,7 @@ Create a `.env` file in the project root:
 OPENROUTER_API_KEY=your_key_here
 ```
 
-Get a key at [openrouter.ai](https://openrouter.ai). The app works without a key — AI narratives are disabled but rule-based analysis still runs.
+Get a key at [openrouter.ai](https://openrouter.ai). The app works without a key — AI narratives are disabled but all rule-based analysis still runs.
 
 **3. Run**
 
@@ -56,7 +58,7 @@ finpilot/
 
 ## Current scope
 
-- Single stock and single-leg option positions
+- Single stock and single-leg option positions (long only for options)
 - Individual position view (no portfolio aggregation yet)
 - No persistent storage — session only
 

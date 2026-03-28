@@ -64,7 +64,7 @@ class OptionPosition:
 
 @dataclass
 class MarketEvent:
-    event_type: Literal["earnings", "ex_dividend", "expiry"]
+    event_type: Literal["earnings", "ex_dividend", "expiry", "fed_meeting"]
     date: date
     label: str  # human-readable description
 
