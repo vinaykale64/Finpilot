@@ -12,8 +12,9 @@ finpilot/
   models.py             — Dataclasses: StockPosition, OptionPosition, MarketEvent, RollCandidate, Scenario, Greeks
   fetcher.py            — yfinance wrappers: prices, option chains, expiry dates, strikes, events, analyst data, snapshot
   rules.py              — Scenario engine: stock_scenarios(), option_scenarios(), rank_roll_candidates()
-  greeks.py             — Black-Scholes Greeks calculator (math only, no extra deps)
+  greeks.py             — Black-Scholes Greeks, probability_of_profit() (math only, no extra deps)
   llm.py                — OpenRouter/Claude narrative generation
+  watchlist.py          — Google Sheets persistence: save/load/delete positions
 ```
 
 ## Running the app
@@ -27,17 +28,22 @@ Runs on http://localhost:8501 by default.
 
 ## Environment setup
 
-Copy `.env` and fill in your key:
+Copy `.env` and fill in your keys:
 
 ```
 OPENROUTER_API_KEY=your_key_here
+GOOGLE_SHEET_ID=your_sheet_id
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
-The app reads this at startup via `python-dotenv`. No key = AI narratives disabled, rule-based analysis still works.
+The app reads these at startup via `python-dotenv`. No OpenRouter key = AI narratives disabled, rule-based analysis still works. No Google credentials = watchlist tab shows empty state without error.
 
 ## Key design decisions
 
-- **No persistent storage** — all state lives in `st.session_state` for the current browser session only.
+- **Watchlist via Google Sheets** — `finpilot/watchlist.py` saves/loads positions using a service account. Credentials in `.env`. Gracefully degrades if not configured.
+- **Watchlist stores P&L and LLM summary** — `save_position()` accepts `pnl`, `pnl_pct`, `overall_analysis`; displayed in each watchlist entry.
+- **Results scoped to tabs** — analysis output renders inside `tab_stock` or `tab_option` based on position type, so the WATCHLIST tab stays clean.
+- **Session state** — live analysis state lives in `st.session_state`; only the watchlist is persisted externally.
 - **Single position view** — analyzing a new position replaces the previous result, no accumulation.
 - **No multi-leg options** — single-leg only for now; multi-leg is a future milestone.
 - **Options are long-only** — `position` is hardcoded to `"long"`. Short options removed from UI.
@@ -49,6 +55,7 @@ The app reads this at startup via `python-dotenv`. No key = AI narratives disabl
 - **Stock chart** — shown for stock positions only, not options. Uses hourly data for 1W/1M, daily for 3M/YTD/1Y. Weekend/overnight gaps hidden via Plotly `rangebreaks`.
 - **Dollar signs in Streamlit** — always escape with `.replace("$", r"\$")` before passing to `st.caption`, `st.info`, or any markdown-rendered component to prevent LaTeX rendering.
 - **Greeks computed before scenarios** — `calculate_greeks()` is called first so `theta_per_day` can be passed into `option_scenarios()`, keeping both displays consistent.
+- **Probability of profit** — `probability_of_profit()` in `greeks.py` returns N(d2) for calls, N(-d2) for puts. Displayed as a metric in the options position summary row. Uses IV from `Greeks.iv` (stored as %, divide by 100 before passing).
 - **lxml required** — needed by yfinance `earnings_dates`. Already in requirements.txt.
 
 ## Result dict structure
@@ -135,6 +142,9 @@ openai>=1.30.0
 pandas>=2.0.0
 python-dateutil>=2.9.0
 plotly>=5.18.0
+finvizfinance>=0.14.0
+gspread>=6.0.0
+google-auth>=2.0.0
 ```
 
 Python 3.9 — use `Optional[X]` not `X | None`.

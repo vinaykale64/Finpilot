@@ -5,8 +5,8 @@ Risk-free rate is approximated at 4.5% (US 10Y Treasury proxy).
 """
 import math
 from dataclasses import dataclass
-from datetime import date
-from typing import Optional
+from datetime import date, timedelta
+from typing import Optional, List, Tuple
 
 RISK_FREE_RATE = 0.045  # ~current US 10Y
 
@@ -97,6 +97,90 @@ def calculate_greeks(
         rho=round(sign * rho_pct * scale, 2),         # $ per 1% rate, full position
         iv=round(iv * 100, 1),                        # store as percentage e.g. 35.0
     )
+
+
+def _bs_price(option_type: str, S: float, K: float, iv: float, T: float, r: float) -> float:
+    """Black-Scholes theoretical price for a European option."""
+    if T <= 0:
+        return max(0.0, S - K) if option_type == "call" else max(0.0, K - S)
+    d1 = (math.log(S / K) + (r + 0.5 * iv ** 2) * T) / (iv * math.sqrt(T))
+    d2 = d1 - iv * math.sqrt(T)
+    disc = math.exp(-r * T)
+    if option_type == "call":
+        return S * _norm_cdf(d1) - K * disc * _norm_cdf(d2)
+    else:
+        return K * disc * _norm_cdf(-d2) - S * _norm_cdf(-d1)
+
+
+def probability_of_profit(
+    option_type: str, S: float, K: float, iv: float, expiry: date, r: float = RISK_FREE_RATE
+) -> Optional[float]:
+    """
+    Risk-neutral probability the option expires in the money (N(d2) for calls, N(-d2) for puts).
+    Returns percentage 0–100 or None if inputs are invalid.
+    """
+    T = (expiry - date.today()).days / 365.0
+    if T <= 0 or iv <= 0 or S <= 0 or K <= 0:
+        return None
+    try:
+        d1 = (math.log(S / K) + (r + 0.5 * iv ** 2) * T) / (iv * math.sqrt(T))
+        d2 = d1 - iv * math.sqrt(T)
+    except (ValueError, ZeroDivisionError):
+        return None
+    pop = _norm_cdf(d2) if option_type == "call" else _norm_cdf(-d2)
+    return round(pop * 100, 1)
+
+
+def breakeven_curve(
+    option_type: str, S: float, K: float, iv: float, expiry: date, premium: float,
+    r: float = RISK_FREE_RATE,
+) -> List[Tuple[date, float]]:
+    """
+    Compute the break-even stock price at each date from today to expiry.
+    At each point: the stock price where BS value = premium paid.
+    Returns list of (date, breakeven_price) tuples.
+    """
+    today = date.today()
+    total_days = (expiry - today).days
+    if total_days <= 0 or iv <= 0 or premium <= 0:
+        return []
+
+    step = max(1, total_days // 60)
+    points: List[Tuple[date, float]] = []
+
+    sample_days = list(range(0, total_days, step))
+    if total_days not in sample_days:
+        sample_days.append(total_days)
+
+    for d in sample_days:
+        t_date = today + timedelta(days=d)
+        T_rem = max((expiry - t_date).days / 365.0, 0.0)
+
+        if T_rem == 0:
+            be = (K + premium) if option_type == "call" else (K - premium)
+            points.append((t_date, round(be, 2)))
+            continue
+
+        # Bisection: find S* where _bs_price(S*) = premium
+        lo, hi = 0.01, K * 8
+        for _ in range(60):
+            mid = (lo + hi) / 2.0
+            val = _bs_price(option_type, mid, K, iv, T_rem, r)
+            if option_type == "call":
+                if val < premium:
+                    lo = mid
+                else:
+                    hi = mid
+            else:
+                if val < premium:
+                    hi = mid
+                else:
+                    lo = mid
+            if hi - lo < 0.005:
+                break
+        points.append((t_date, round((lo + hi) / 2.0, 2)))
+
+    return points
 
 
 # Plain-English explanations keyed to position direction

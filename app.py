@@ -25,7 +25,8 @@ from finpilot.fetcher import (
 )
 from finpilot.rules import stock_scenarios, option_scenarios, rank_roll_candidates
 from finpilot.llm import generate_all_narratives
-from finpilot.greeks import calculate_greeks, greeks_explanations
+from finpilot.greeks import calculate_greeks, greeks_explanations, probability_of_profit
+from finpilot.watchlist import save_position, load_watchlist, delete_position, row_to_position
 import plotly.graph_objects as go
 import yfinance as yf
 
@@ -469,7 +470,7 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
 # ---------------------------------------------------------------------------
 # Add Position form
 # ---------------------------------------------------------------------------
-tab_stock, tab_option = st.tabs(["📈 STOCKS", "🎯 OPTIONS"])
+tab_stock, tab_option, tab_watchlist = st.tabs(["📈 STOCKS", "🎯 OPTIONS", "📋 WATCHLIST"])
 
 with tab_stock:
     with st.form("stock_form"):
@@ -599,247 +600,329 @@ with tab_option:
 
 
 # ---------------------------------------------------------------------------
-# Analysis result — single current position
+# Analysis result — rendered inside the appropriate tab
 # ---------------------------------------------------------------------------
-st.divider()
+with tab_stock:
+    st.divider()
+    if st.session_state.result is None or not isinstance(st.session_state.result["position"], StockPosition):
+        st.info("No stock position analyzed yet. Enter details above to get started.")
 
-if st.session_state.result is None:
-    st.info("No position analyzed yet. Add one above to get started.")
-else:
-    entry = st.session_state.result
-    pos = entry["position"]
-    current_price = entry["current_price"]
-    events = entry["events"]
-    scenarios = entry["scenarios"]
-    ticker = pos.ticker.upper()
+with tab_option:
+    st.divider()
+    if st.session_state.result is None or not isinstance(st.session_state.result["position"], OptionPosition):
+        st.info("No option position analyzed yet. Enter details above to get started.")
 
-    # --- Position summary ---
-    if isinstance(pos, StockPosition):
-        pnl = pos.pnl(current_price)
-        pnl_pct = pos.pnl_pct(current_price)
-        sign = "+" if pnl >= 0 else ""
+if st.session_state.result is not None:
+    _res_pos = st.session_state.result["position"]
+    _res_tab = tab_stock if isinstance(_res_pos, StockPosition) else tab_option
+    with _res_tab:
+        entry = st.session_state.result
+        pos = entry["position"]
+        current_price = entry["current_price"]
+        events = entry["events"]
+        scenarios = entry["scenarios"]
+        ticker = pos.ticker.upper()
 
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Ticker", ticker)
-        col2.metric("Type", "Stock")
-        col3.metric("You paid", f"${pos.cost_basis:,.2f}/share")
-        col4.metric("Current price", f"${current_price:,.2f}")
-        col5.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
+        # --- Save to watchlist ---
+        col_save, _ = st.columns([1, 5])
+        with col_save:
+            if st.button("🔖 Save to watchlist", use_container_width=True):
+                if isinstance(pos, StockPosition):
+                    _save_pnl = pos.pnl(current_price)
+                    _save_pnl_pct = pos.pnl_pct(current_price)
+                else:
+                    _save_pnl = pos.pnl(entry.get("current_mark", 0))
+                    _save_pnl_pct = pos.pnl_pct(entry.get("current_mark", 0))
+                if save_position(pos, pnl=_save_pnl, pnl_pct=_save_pnl_pct, overall_analysis=entry.get("overall_analysis", "")):
+                    st.success("Saved!")
+                else:
+                    st.error("Could not save — check Google Sheets config.")
 
-    else:
-        current_mark = entry["current_mark"]
-        pnl = pos.pnl(current_mark)
-        pnl_pct = pos.pnl_pct(current_mark)
-        sign = "+" if pnl >= 0 else ""
+        # --- Position summary ---
+        if isinstance(pos, StockPosition):
+            pnl = pos.pnl(current_price)
+            pnl_pct = pos.pnl_pct(current_price)
+            sign = "+" if pnl >= 0 else ""
 
-        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-        col1.metric("Ticker", ticker)
-        col2.metric("Type", f"{pos.position.title()} {pos.option_type.title()}")
-        col3.metric("Strike", f"${pos.strike:,.2f}")
-        col4.metric("Expires", pos.expiry.strftime("%b %d, %Y"))
-        col5.metric("Stock price now", f"${current_price:,.2f}")
-        col6.metric("Option value now", f"${current_mark:,.2f}/share")
-        col7.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("Ticker", ticker)
+            col2.metric("Type", "Stock")
+            col3.metric("You paid", f"${pos.cost_basis:,.2f}/share")
+            col4.metric("Current price", f"${current_price:,.2f}")
+            col5.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
 
-    # --- Stock price chart (stocks only) ---
-    if isinstance(pos, StockPosition):
-        today = date.today()
-        range_options = ["1W", "1M", "3M", "YTD", "1Y"]
-        selected_range = st.radio(
-            "Range", range_options, index=0,
-            horizontal=True, label_visibility="collapsed",
-            key="stock_chart_range",
-        )
+        else:
+            current_mark = entry["current_mark"]
+            pnl = pos.pnl(current_mark)
+            pnl_pct = pos.pnl_pct(current_mark)
+            sign = "+" if pnl >= 0 else ""
+            _iv = (entry["greeks"].iv / 100.0) if entry.get("greeks") else 0.35
+            _pop = probability_of_profit(pos.option_type, current_price, pos.strike, _iv, pos.expiry)
 
-        # Fetch hourly for short ranges, daily for longer ones
-        use_hourly = selected_range in ("1W", "1M")
-        range_start = {
-            "1W":  today - timedelta(weeks=1),
-            "1M":  today - timedelta(days=30),
-            "3M":  today - timedelta(days=90),
-            "YTD": date(today.year, 1, 1),
-            "1Y":  today - timedelta(days=365),
-        }
-        cutoff = range_start[selected_range]
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
+            col1.metric("Ticker", ticker)
+            col2.metric("Type", f"{pos.position.title()} {pos.option_type.title()}")
+            col3.metric("Strike", f"${pos.strike:,.2f}")
+            col4.metric("Expires", pos.expiry.strftime("%b %d, %Y"))
+            col5.metric("Stock price now", f"${current_price:,.2f}")
+            col6.metric("Option value now", f"${current_mark:,.2f}/share")
+            col7.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
+            col8.metric("Prob. of profit", f"{_pop:.1f}%" if _pop is not None else "—")
 
-        with st.spinner(f"Loading {ticker} price history..."):
-            try:
-                t = yf.Ticker(pos.ticker)
+        # --- Stock price chart (stocks only) ---
+        if isinstance(pos, StockPosition):
+            today = date.today()
+            range_options = ["1W", "1M", "3M", "YTD", "1Y"]
+            selected_range = st.radio(
+                "Range", range_options, index=0,
+                horizontal=True, label_visibility="collapsed",
+                key="stock_chart_range",
+            )
+
+            # Fetch hourly for short ranges, daily for longer ones
+            use_hourly = selected_range in ("1W", "1M")
+            range_start = {
+                "1W":  today - timedelta(weeks=1),
+                "1M":  today - timedelta(days=30),
+                "3M":  today - timedelta(days=90),
+                "YTD": date(today.year, 1, 1),
+                "1Y":  today - timedelta(days=365),
+            }
+            cutoff = range_start[selected_range]
+
+            with st.spinner(f"Loading {ticker} price history..."):
+                try:
+                    t = yf.Ticker(pos.ticker)
+                    if use_hourly:
+                        hist = t.history(
+                            start=cutoff.strftime("%Y-%m-%d"),
+                            interval="1h",
+                        )
+                    else:
+                        hist = t.history(
+                            start=cutoff.strftime("%Y-%m-%d"),
+                            interval="1d",
+                        )
+                except Exception:
+                    hist = None
+
+            if hist is not None and not hist.empty:
                 if use_hourly:
-                    hist = t.history(
-                        start=cutoff.strftime("%Y-%m-%d"),
-                        interval="1h",
+                    hover_fmt = "%{x|%b %d, %I:%M %p}<br>Price: <b>$%{y:.2f}</b><extra></extra>"
+                    xaxis_cfg = dict(
+                        rangebreaks=[
+                            dict(bounds=["sat", "mon"]),          # hide weekends
+                            dict(bounds=[20, 4], pattern="hour"), # hide overnight hours
+                        ],
                     )
                 else:
-                    hist = t.history(
-                        start=cutoff.strftime("%Y-%m-%d"),
-                        interval="1d",
+                    hover_fmt = "%{x|%b %d, %Y}<br>Price: <b>$%{y:.2f}</b><extra></extra>"
+                    xaxis_cfg = dict(
+                        rangebreaks=[
+                            dict(bounds=["sat", "mon"]),  # hide weekends
+                        ],
                     )
-            except Exception:
-                hist = None
 
-        if hist is not None and not hist.empty:
-            if use_hourly:
-                hover_fmt = "%{x|%b %d, %I:%M %p}<br>Price: <b>$%{y:.2f}</b><extra></extra>"
-                xaxis_cfg = dict(
-                    rangebreaks=[
-                        dict(bounds=["sat", "mon"]),          # hide weekends
-                        dict(bounds=[20, 4], pattern="hour"), # hide overnight hours
-                    ],
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=hist.index,
+                    y=hist["Close"],
+                    mode="lines",
+                    name=ticker,
+                    line=dict(color="#00c57a", width=2),
+                    hovertemplate=hover_fmt,
+                ))
+                fig.add_hline(
+                    y=pos.cost_basis,
+                    line_dash="dash",
+                    line_color="#ffa500",
+                    annotation_text=f"You paid \${pos.cost_basis:,.2f}",
+                    annotation_position="bottom right",
                 )
-            else:
-                hover_fmt = "%{x|%b %d, %Y}<br>Price: <b>$%{y:.2f}</b><extra></extra>"
-                xaxis_cfg = dict(
-                    rangebreaks=[
-                        dict(bounds=["sat", "mon"]),  # hide weekends
-                    ],
+                fig.update_layout(
+                    title=dict(text=f"{ticker} stock price", font=dict(size=13)),
+                    xaxis_title=None,
+                    yaxis_title="Price ($)",
+                    height=280,
+                    margin=dict(l=0, r=0, t=36, b=0),
+                    hovermode="x unified",
+                    yaxis=dict(tickprefix="$"),
+                    xaxis=xaxis_cfg,
                 )
+                st.plotly_chart(fig, use_container_width=True)
 
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=hist.index,
-                y=hist["Close"],
-                mode="lines",
-                name=ticker,
-                line=dict(color="#00c57a", width=2),
-                hovertemplate=hover_fmt,
-            ))
-            fig.add_hline(
-                y=pos.cost_basis,
-                line_dash="dash",
-                line_color="#ffa500",
-                annotation_text=f"You paid \${pos.cost_basis:,.2f}",
-                annotation_position="bottom right",
-            )
-            fig.update_layout(
-                title=dict(text=f"{ticker} stock price", font=dict(size=13)),
-                xaxis_title=None,
-                yaxis_title="Price ($)",
-                height=280,
-                margin=dict(l=0, r=0, t=36, b=0),
-                hovermode="x unified",
-                yaxis=dict(tickprefix="$"),
-                xaxis=xaxis_cfg,
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        # --- Pane 1: Stock snapshot + Technicals + Analyst ratings ---
+        snapshot = entry.get("snapshot", {})
+        finviz = entry.get("finviz", {})
+        analyst = entry.get("analyst", {})
+        pt = analyst.get("price_targets") if analyst else None
+        summary = analyst.get("summary") if analyst else None
+        changes = analyst.get("recent_changes") if analyst else None
 
-    # --- Greeks (options only) ---
-    # --- Pane 1: Stock snapshot + Technicals + Analyst ratings ---
-    snapshot = entry.get("snapshot", {})
-    finviz = entry.get("finviz", {})
-    analyst = entry.get("analyst", {})
-    pt = analyst.get("price_targets") if analyst else None
-    summary = analyst.get("summary") if analyst else None
-    changes = analyst.get("recent_changes") if analyst else None
-
-    if snapshot or finviz or pt or summary or changes:
-        with st.expander("📊 Market context", expanded=False):
-            if snapshot:
-                render_stock_snapshot(snapshot, current_price)
-            if finviz:
-                render_finviz(finviz)
-            if pt or summary or changes:
-                st.markdown("**Analyst ratings**")
-                col_a, col_b = st.columns([1, 1])
-                with col_a:
-                    if summary:
-                        total = summary["strong_buy"] + summary["buy"] + summary["hold"] + summary["sell"] + summary["strong_sell"]
-                        bullish = summary["strong_buy"] + summary["buy"]
-                        rows = "".join([
-                            f"<tr><td style='color:#00c57a; padding:2px 10px 2px 0'>Strong Buy</td><td style='font-weight:600'>{summary['strong_buy']}</td></tr>",
-                            f"<tr><td style='color:#7ec87e; padding:2px 10px 2px 0'>Buy</td><td style='font-weight:600'>{summary['buy']}</td></tr>",
-                            f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Hold</td><td style='font-weight:600'>{summary['hold']}</td></tr>",
-                            f"<tr><td style='color:#ffa07a; padding:2px 10px 2px 0'>Sell</td><td style='font-weight:600'>{summary['sell']}</td></tr>",
-                            f"<tr><td style='color:#ff4b4b; padding:2px 10px 2px 0'>Strong Sell</td><td style='font-weight:600'>{summary['strong_sell']}</td></tr>",
-                        ])
-                        st.markdown(
-                            f"<div style='font-size:0.85em; margin-bottom:4px; color:#aaa'>{bullish}/{total} analysts bullish</div>"
-                            f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
-                            unsafe_allow_html=True,
-                        )
-                with col_b:
-                    if pt:
-                        upside = ((pt["mean"] - current_price) / current_price * 100)
-                        upside_color = "#00c57a" if upside >= 0 else "#ff4b4b"
-                        rows = "".join([
-                            f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Mean target</td><td style='font-weight:600'>${pt['mean']:,.2f} <span style='color:{upside_color}; font-size:0.85em'>({upside:+.1f}%)</span></td></tr>",
-                            f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Median target</td><td style='font-weight:600'>${pt['median']:,.2f}</td></tr>",
-                            f"<tr><td style='color:#888; padding:2px 10px 2px 0'>High target</td><td style='font-weight:600'>${pt['high']:,.2f}</td></tr>",
-                            f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Low target</td><td style='font-weight:600'>${pt['low']:,.2f}</td></tr>",
-                        ])
-                        st.markdown(
-                            f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
-                            unsafe_allow_html=True,
-                        )
-                    if changes:
-                        st.markdown("<div style='font-size:0.8em; color:#aaa; margin-top:10px'>Recent actions</div>", unsafe_allow_html=True)
-                        for c in changes[:4]:
-                            action_color = "#00c57a" if c["action"] in ("upgrade", "init") else "#ffa500" if c["action"] == "main" else "#ff4b4b"
+        if snapshot or finviz or pt or summary or changes:
+            with st.expander("📊 Market context", expanded=False):
+                if snapshot:
+                    render_stock_snapshot(snapshot, current_price)
+                if finviz:
+                    render_finviz(finviz)
+                if pt or summary or changes:
+                    st.markdown("**Analyst ratings**")
+                    col_a, col_b = st.columns([1, 1])
+                    with col_a:
+                        if summary:
+                            total = summary["strong_buy"] + summary["buy"] + summary["hold"] + summary["sell"] + summary["strong_sell"]
+                            bullish = summary["strong_buy"] + summary["buy"]
+                            rows = "".join([
+                                f"<tr><td style='color:#00c57a; padding:2px 10px 2px 0'>Strong Buy</td><td style='font-weight:600'>{summary['strong_buy']}</td></tr>",
+                                f"<tr><td style='color:#7ec87e; padding:2px 10px 2px 0'>Buy</td><td style='font-weight:600'>{summary['buy']}</td></tr>",
+                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Hold</td><td style='font-weight:600'>{summary['hold']}</td></tr>",
+                                f"<tr><td style='color:#ffa07a; padding:2px 10px 2px 0'>Sell</td><td style='font-weight:600'>{summary['sell']}</td></tr>",
+                                f"<tr><td style='color:#ff4b4b; padding:2px 10px 2px 0'>Strong Sell</td><td style='font-weight:600'>{summary['strong_sell']}</td></tr>",
+                            ])
                             st.markdown(
-                                f"<div style='font-size:0.82em; margin:2px 0'>"
-                                f"<span style='color:{action_color}'>●</span> "
-                                f"<strong>{c['firm']}</strong> — {c['to_grade']}"
-                                f"{'  ← ' + c['from_grade'] if c['from_grade'] else ''}"
-                                f" <span style='color:#666'>({c['date'].strftime('%b %d')})</span></div>",
+                                f"<div style='font-size:0.85em; margin-bottom:4px; color:#aaa'>{bullish}/{total} analysts bullish</div>"
+                                f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
                                 unsafe_allow_html=True,
                             )
+                    with col_b:
+                        if pt:
+                            upside = ((pt["mean"] - current_price) / current_price * 100)
+                            upside_color = "#00c57a" if upside >= 0 else "#ff4b4b"
+                            rows = "".join([
+                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Mean target</td><td style='font-weight:600'>${pt['mean']:,.2f} <span style='color:{upside_color}; font-size:0.85em'>({upside:+.1f}%)</span></td></tr>",
+                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Median target</td><td style='font-weight:600'>${pt['median']:,.2f}</td></tr>",
+                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>High target</td><td style='font-weight:600'>${pt['high']:,.2f}</td></tr>",
+                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Low target</td><td style='font-weight:600'>${pt['low']:,.2f}</td></tr>",
+                            ])
+                            st.markdown(
+                                f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
+                                unsafe_allow_html=True,
+                            )
+                        if changes:
+                            st.markdown("<div style='font-size:0.8em; color:#aaa; margin-top:10px'>Recent actions</div>", unsafe_allow_html=True)
+                            for c in changes[:4]:
+                                action_color = "#00c57a" if c["action"] in ("upgrade", "init") else "#ffa500" if c["action"] == "main" else "#ff4b4b"
+                                st.markdown(
+                                    f"<div style='font-size:0.82em; margin:2px 0'>"
+                                    f"<span style='color:{action_color}'>●</span> "
+                                    f"<strong>{c['firm']}</strong> — {c['to_grade']}"
+                                    f"{'  ← ' + c['from_grade'] if c['from_grade'] else ''}"
+                                    f" <span style='color:#666'>({c['date'].strftime('%b %d')})</span></div>",
+                                    unsafe_allow_html=True,
+                                )
 
-    # --- Pane 2: Timeline + News ---
-    with st.expander("🗓️ Timeline & News", expanded=False):
-        if isinstance(pos, OptionPosition):
-            render_timeline(events, pos.expiry, "Expiry")
-        else:
-            stock_horizon = date.today() + timedelta(days=365)
-            render_timeline(events, stock_horizon, "1 year out")
-        finviz_news = entry.get("finviz", {}).get("news", [])
-        if finviz_news:
-            st.markdown("**Recent news**")
-            for item in finviz_news:
-                date_str = item["date"].strftime("%b %d") if hasattr(item.get("date"), "strftime") else ""
-                source = item.get("source", "")
-                title = item.get("title", "")
-                link = item.get("link", "")
-                title_html = f"<a href='{link}' target='_blank' style='color:#ccc;text-decoration:none'>{title}</a>" if link else title
+        # --- Pane 2: Timeline + News ---
+        with st.expander("🗓️ Timeline & News", expanded=False):
+            if isinstance(pos, OptionPosition):
+                render_timeline(events, pos.expiry, "Expiry")
+            else:
+                stock_horizon = date.today() + timedelta(days=365)
+                render_timeline(events, stock_horizon, "1 year out")
+            finviz_news = entry.get("finviz", {}).get("news", [])
+            if finviz_news:
+                st.markdown("**Recent news**")
+                for item in finviz_news:
+                    date_str = item["date"].strftime("%b %d") if hasattr(item.get("date"), "strftime") else ""
+                    source = item.get("source", "")
+                    title = item.get("title", "")
+                    link = item.get("link", "")
+                    title_html = f"<a href='{link}' target='_blank' style='color:#ccc;text-decoration:none'>{title}</a>" if link else title
+                    st.markdown(
+                        f"<div style='font-size:0.83em;margin:3px 0;padding:4px 0;border-bottom:1px solid #222'>"
+                        f"<span style='color:#555'>{date_str} · {source}</span><br>{title_html}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        # --- Position Greeks (options only, collapsed) ---
+        if isinstance(pos, OptionPosition) and entry.get("greeks"):
+            g = entry["greeks"]
+            iv_note = "" if entry.get("iv_source") == "live" else " *(IV estimated at 35%)*"
+            with st.expander(f"🔢 Position Greeks{iv_note}", expanded=False):
+                explanations = greeks_explanations(g, pos.option_type, pos.position, ticker)
+                greek_rows = [
+                    ("Delta",  f"{g.delta:+.4f}",  explanations["Delta"]),
+                    ("Gamma",  f"{g.gamma:+.4f}",  explanations["Gamma"]),
+                    ("Theta",  f"${g.theta:+,.2f}/day", explanations["Theta"]),
+                    ("Vega",   f"${g.vega:+,.2f} per 1% IV", explanations["Vega"]),
+                    ("Rho",    f"${g.rho:+,.2f} per 1% rate", explanations["Rho"]),
+                ]
+                table_rows = "".join(
+                    f"<tr>"
+                    f"<td style='font-weight:700; padding:5px 14px 5px 0; white-space:nowrap'>{name}</td>"
+                    f"<td style='font-family:monospace; padding:5px 14px 5px 0; white-space:nowrap'>{value}</td>"
+                    f"<td style='color:#888; padding:5px 0; font-size:0.88em'>{explanation}</td>"
+                    f"</tr>"
+                    for name, value, explanation in greek_rows
+                )
                 st.markdown(
-                    f"<div style='font-size:0.83em;margin:3px 0;padding:4px 0;border-bottom:1px solid #222'>"
-                    f"<span style='color:#555'>{date_str} · {source}</span><br>{title_html}</div>",
+                    f"<table style='border-collapse:collapse; width:100%; margin-bottom:8px'>{table_rows}</table>",
                     unsafe_allow_html=True,
                 )
 
-    # --- Position Greeks (options only, collapsed) ---
-    if isinstance(pos, OptionPosition) and entry.get("greeks"):
-        g = entry["greeks"]
-        iv_note = "" if entry.get("iv_source") == "live" else " *(IV estimated at 35%)*"
-        with st.expander(f"🔢 Position Greeks{iv_note}", expanded=False):
-            explanations = greeks_explanations(g, pos.option_type, pos.position, ticker)
-            greek_rows = [
-                ("Delta",  f"{g.delta:+.4f}",  explanations["Delta"]),
-                ("Gamma",  f"{g.gamma:+.4f}",  explanations["Gamma"]),
-                ("Theta",  f"${g.theta:+,.2f}/day", explanations["Theta"]),
-                ("Vega",   f"${g.vega:+,.2f} per 1% IV", explanations["Vega"]),
-                ("Rho",    f"${g.rho:+,.2f} per 1% rate", explanations["Rho"]),
-            ]
-            table_rows = "".join(
-                f"<tr>"
-                f"<td style='font-weight:700; padding:5px 14px 5px 0; white-space:nowrap'>{name}</td>"
-                f"<td style='font-family:monospace; padding:5px 14px 5px 0; white-space:nowrap'>{value}</td>"
-                f"<td style='color:#888; padding:5px 0; font-size:0.88em'>{explanation}</td>"
-                f"</tr>"
-                for name, value, explanation in greek_rows
-            )
-            st.markdown(
-                f"<table style='border-collapse:collapse; width:100%; margin-bottom:8px'>{table_rows}</table>",
-                unsafe_allow_html=True,
-            )
+        # --- Scenarios ---
+        st.markdown("### Your options")
+        if not OPENROUTER_KEY:
+            st.caption("💡 Add OPENROUTER_API_KEY to your .env file to get AI explanations.")
 
-    # --- Scenarios ---
-    st.markdown("### Your options")
-    if not OPENROUTER_KEY:
-        st.caption("💡 Add OPENROUTER_API_KEY to your .env file to get AI explanations.")
+        overall = entry.get("overall_analysis", "")
+        if overall:
+            st.info(overall.replace("$", r"\$"), icon="💬")
 
-    overall = entry.get("overall_analysis", "")
-    if overall:
-        st.info(overall.replace("$", r"\$"), icon="💬")
+        for i, scenario in enumerate(scenarios):
+            render_scenario_card(scenario, i)
 
-    for i, scenario in enumerate(scenarios):
-        render_scenario_card(scenario, i)
+# ---------------------------------------------------------------------------
+# Watchlist tab
+# ---------------------------------------------------------------------------
+with tab_watchlist:
+    st.markdown("### 📋 Watchlist")
+    rows = load_watchlist()
+
+    if not rows:
+        st.info("No saved positions yet. Analyze a position and click 'Save to watchlist'.")
+    else:
+        for i, row in enumerate(rows):
+            pos_type = row.get("type", "")
+            ticker = row.get("ticker", "")
+            saved_at = row.get("saved_at", "")
+
+            if pos_type == "stock":
+                label = f"**{ticker}** — Stock · {row.get('shares_contracts')} shares @ \${row.get('cost_basis_premium')}"
+            else:
+                label = (f"**{ticker}** — {row.get('option_type', '').title()} · "
+                         f"Strike \${row.get('strike')} · Expiry {row.get('expiry')} · "
+                         f"{row.get('shares_contracts')} contract(s) @ \${row.get('cost_basis_premium')}")
+
+            with st.container(border=True):
+                col_info, col_analyze, col_delete = st.columns([5, 1, 1])
+                with col_info:
+                    st.markdown(label)
+                    pnl_val = row.get("pnl", "")
+                    pnl_pct_val = row.get("pnl_pct", "")
+                    pnl_display = f"P&L: **{pnl_val}** ({pnl_pct_val})" if pnl_val else ""
+                    caption_parts = [f"Saved {saved_at}"]
+                    if pnl_display:
+                        caption_parts.append(pnl_display)
+                    st.caption(" · ".join(caption_parts))
+                    summary = row.get("overall_analysis", "")
+                    if summary:
+                        st.caption(summary.replace("$", r"\$"))
+                with col_analyze:
+                    if st.button("Analyze", key=f"analyze_{i}", use_container_width=True):
+                        position = row_to_position(row)
+                        if position:
+                            with st.spinner(f"Analyzing {ticker}..."):
+                                result = analyze_position(position)
+                            if result.get("error"):
+                                st.error(result["error"])
+                            else:
+                                st.session_state.result = result
+                                st.success("Done — see results above in STOCKS or OPTIONS tab.")
+                        else:
+                            st.error("Could not parse saved position.")
+                with col_delete:
+                    if st.button("Delete", key=f"delete_{i}", use_container_width=True):
+                        if delete_position(i + 1):
+                            st.rerun()
+                        else:
+                            st.error("Could not delete.")
