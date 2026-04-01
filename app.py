@@ -25,7 +25,7 @@ from finpilot.fetcher import (
 )
 from finpilot.rules import stock_scenarios, option_scenarios, rank_roll_candidates
 from finpilot.llm import generate_all_narratives
-from finpilot.greeks import calculate_greeks, greeks_explanations, probability_of_profit
+from finpilot.greeks import calculate_greeks, greeks_explanations, probability_of_profit, bs_option_value, implied_vol
 from finpilot.watchlist import save_position, load_watchlist, delete_position, row_to_position
 import plotly.graph_objects as go
 import yfinance as yf
@@ -85,6 +85,8 @@ if "option_strikes" not in st.session_state:
     st.session_state.option_strikes = []
 if "option_selected_expiry" not in st.session_state:
     st.session_state.option_selected_expiry = None
+if "watchlist_just_analyzed" not in st.session_state:
+    st.session_state.watchlist_just_analyzed = None  # ticker string or None
 
 
 # ---------------------------------------------------------------------------
@@ -470,134 +472,7 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
 # ---------------------------------------------------------------------------
 # Add Position form
 # ---------------------------------------------------------------------------
-tab_stock, tab_option, tab_watchlist = st.tabs(["📈 STOCKS", "🎯 OPTIONS", "📋 WATCHLIST"])
-
-with tab_stock:
-    with st.form("stock_form"):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            s_ticker = st.text_input("Ticker", value="GOOG").upper().strip()
-        with col2:
-            s_shares = st.number_input("Number of shares", min_value=0.01, value=1.0, step=1.0)
-        with col3:
-            s_cost = st.number_input("Price you paid per share ($)", min_value=0.01, value=300.0, step=0.01)
-        with col4:
-            s_entry = st.date_input("Entry date (optional)", value=None)
-
-        submitted_stock = st.form_submit_button("Fetch & Analyze", use_container_width=True)
-
-    if submitted_stock:
-        if not s_ticker:
-            st.error("Please enter a ticker symbol.")
-        else:
-            with st.spinner(f"Fetching data for {s_ticker}..."):
-                position = StockPosition(
-                    ticker=s_ticker,
-                    shares=s_shares,
-                    cost_basis=s_cost,
-                    entry_date=s_entry,
-                )
-                result = analyze_position(position)
-                if result.get("error"):
-                    st.error(result["error"])
-                else:
-                    st.session_state.result = result
-                    st.rerun()
-
-with tab_option:
-    # Step 1 — load expiry dates for a ticker (outside the form so it can rerender)
-    exp_col1, exp_col2 = st.columns([2, 1])
-    with exp_col1:
-        o_ticker_load = st.text_input(
-            "Ticker", value="GOOG", key="o_ticker_load"
-        ).upper().strip()
-    with exp_col2:
-        st.write("")  # vertical alignment nudge
-        st.write("")
-        load_expiries = st.button("Load expiry dates", use_container_width=True)
-
-    if load_expiries:
-        if not o_ticker_load:
-            st.error("Enter a ticker first.")
-        else:
-            with st.spinner(f"Fetching expiry dates for {o_ticker_load}..."):
-                expiries = fetch_expiry_dates(o_ticker_load)
-                if not expiries:
-                    st.error(f"No option expiry dates found for {o_ticker_load}.")
-                else:
-                    price = fetch_current_price(o_ticker_load) or 200.0
-                    st.session_state.option_expiries = expiries
-                    st.session_state.option_expiry_ticker = o_ticker_load
-                    st.session_state.option_ticker_price = float(price)
-
-    # Step 2 — expiry + type selectors (outside form so strikes can update dynamically)
-    if st.session_state.option_expiries and st.session_state.option_expiry_ticker == o_ticker_load:
-        pre_col1, pre_col2 = st.columns(2)
-        with pre_col1:
-            o_type = st.selectbox("Option Type", ["Call", "Put"], key="o_type").lower()
-        with pre_col2:
-            expiry_options = st.session_state.option_expiries
-            expiry_labels = [e.strftime("%b %d, %Y") for e in expiry_options]
-            o_expiry_idx = st.selectbox("Expiry date", range(len(expiry_labels)), format_func=lambda i: expiry_labels[i], key="o_expiry_idx")
-
-        o_expiry = expiry_options[o_expiry_idx]
-
-        # Fetch strikes whenever expiry or type changes
-        cache_key = (o_ticker_load, o_expiry, o_type)
-        if st.session_state.option_selected_expiry != cache_key:
-            with st.spinner("Loading strikes..."):
-                strikes = fetch_strikes_for_expiry(o_ticker_load, o_expiry, o_type)
-                st.session_state.option_strikes = strikes
-                st.session_state.option_selected_expiry = cache_key
-
-        # Step 3 — main form
-        with st.form("option_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                strikes_available = st.session_state.option_strikes
-                current_price = st.session_state.option_ticker_price
-                # Default to strike closest to current price
-                if strikes_available:
-                    closest_idx = min(range(len(strikes_available)), key=lambda i: abs(strikes_available[i] - current_price))
-                    o_strike = st.selectbox(
-                        "Strike price ($)",
-                        strikes_available,
-                        index=closest_idx,
-                        format_func=lambda s: f"${s:,.2f}",
-                    )
-                else:
-                    o_strike = st.number_input("Strike price ($)", min_value=0.01, value=current_price, step=0.50)
-                o_position = "long"
-            with col2:
-                o_premium = st.number_input(
-                    "Premium paid per share ($)",
-                    min_value=0.01, value=5.00, step=0.05,
-                    help="The price per share you paid. Multiply by 100 for total contract cost.",
-                )
-                o_contracts = st.number_input("Number of contracts", min_value=1, value=1, step=1)
-
-            submitted_option = st.form_submit_button("Fetch & Analyze", use_container_width=True)
-
-        if submitted_option:
-            with st.spinner(f"Fetching data for {o_ticker_load} options..."):
-                position = OptionPosition(
-                    ticker=o_ticker_load,
-                    option_type=o_type,
-                    position=o_position,
-                    strike=o_strike,
-                    expiry=o_expiry,
-                    premium=o_premium,
-                    contracts=int(o_contracts),
-                )
-                result = analyze_position(position)
-                if result.get("error"):
-                    st.error(result["error"])
-                else:
-                    st.session_state.result = result
-                    st.rerun()
-    elif not st.session_state.option_expiries:
-        st.caption("Enter a ticker and click **Load expiry dates** to continue.")
-
+tab_stock, tab_option, tab_watchlist = st.tabs(["📈 STOCKS", "🎯 OPTIONS", "📋 SAVED ANALYSIS"])
 
 # ---------------------------------------------------------------------------
 # Analysis result — rendered inside the appropriate tab
@@ -626,7 +501,7 @@ if st.session_state.result is not None:
         # --- Save to watchlist ---
         col_save, _ = st.columns([1, 5])
         with col_save:
-            if st.button("🔖 Save to watchlist", use_container_width=True):
+            if st.button("🔖 Save analysis", use_container_width=True):
                 if isinstance(pos, StockPosition):
                     _save_pnl = pos.pnl(current_price)
                     _save_pnl_pct = pos.pnl_pct(current_price)
@@ -668,6 +543,80 @@ if st.session_state.result is not None:
             col6.metric("Option value now", f"${current_mark:,.2f}/share")
             col7.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
             col8.metric("Prob. of profit", f"{_pop:.1f}%" if _pop is not None else "—")
+
+        # --- Option value vs stock price chart (options only) ---
+        if isinstance(pos, OptionPosition) and entry.get("greeks"):
+            # Calibrate IV from actual current_mark so the curve passes through the real market price
+            _current_mark = entry.get("current_mark") or 0
+            _iv_chart = implied_vol(pos.option_type, current_price, pos.strike, _current_mark, pos.expiry) \
+                if _current_mark > 0 else entry["greeks"].iv / 100.0
+            lo = min(current_price, pos.strike) * 0.75
+            hi = max(current_price, pos.strike) * 1.25
+            steps = 200
+            step_size = (hi - lo) / steps
+            s_range = [lo + i * step_size for i in range(steps + 1)]
+
+            values = [bs_option_value(pos.option_type, s, pos.strike, _iv_chart, pos.expiry) for s in s_range]
+            expiry_payoff = [
+                max(0.0, s - pos.strike) if pos.option_type == "call" else max(0.0, pos.strike - s)
+                for s in s_range
+            ]
+
+            # Find break-even: stock price where value today crosses cost basis
+            be_stock = None
+            for i in range(len(values) - 1):
+                v0, v1 = values[i], values[i + 1]
+                if v0 is None or v1 is None:
+                    continue
+                if (v0 - pos.premium) * (v1 - pos.premium) <= 0:
+                    # Linear interpolation
+                    t = (pos.premium - v0) / (v1 - v0) if v1 != v0 else 0
+                    be_stock = s_range[i] + t * (s_range[i + 1] - s_range[i])
+                    break
+
+            fig_ov = go.Figure()
+            fig_ov.add_trace(go.Scatter(
+                x=s_range, y=expiry_payoff,
+                mode="lines", name="Value at expiry",
+                line=dict(color="#7b9fff", width=1.5, dash="dot"),
+                hovertemplate="Stock $%{x:.2f}<br>At expiry: <b>$%{y:.2f}</b><extra></extra>",
+            ))
+            fig_ov.add_trace(go.Scatter(
+                x=s_range, y=values,
+                mode="lines", name="Value today (BS)",
+                line=dict(color="#00c57a", width=2),
+                hovertemplate="Stock $%{x:.2f}<br>Value today: <b>$%{y:.2f}</b><extra></extra>",
+            ))
+            fig_ov.add_hline(
+                y=pos.premium,
+                line_dash="dash", line_color="#ffa500",
+                annotation_text=f"Cost basis ${pos.premium:,.2f}",
+                annotation_position="top left",
+            )
+            fig_ov.add_vline(
+                x=current_price,
+                line_dash="dash", line_color="#888",
+                annotation_text=f"Now ${current_price:,.2f}",
+                annotation_position="top right",
+            )
+            if be_stock is not None:
+                fig_ov.add_vline(
+                    x=be_stock,
+                    line_dash="solid", line_color="#ffa500",
+                    annotation_text=f"B/E ${be_stock:,.2f}",
+                    annotation_position="bottom right",
+                )
+            fig_ov.update_layout(
+                title=dict(text=f"Option value vs {ticker} stock price  ·  δ = {entry['greeks'].delta:+.2f}", font=dict(size=13)),
+                xaxis_title="Stock price ($)", yaxis_title="Option value ($)",
+                height=280,
+                margin=dict(l=0, r=0, t=36, b=0),
+                hovermode="x unified",
+                xaxis=dict(tickprefix="$"),
+                yaxis=dict(tickprefix="$"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_ov, use_container_width=True)
 
         # --- Stock price chart (stocks only) ---
         if isinstance(pos, StockPosition):
@@ -871,15 +820,147 @@ if st.session_state.result is not None:
         for i, scenario in enumerate(scenarios):
             render_scenario_card(scenario, i)
 
+with tab_stock:
+    with st.form("stock_form"):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            s_ticker = st.text_input("Ticker", value="GOOG").upper().strip()
+        with col2:
+            s_shares = st.number_input("Number of shares", min_value=0.01, value=1.0, step=1.0)
+        with col3:
+            s_cost = st.number_input("Price you paid per share ($)", min_value=0.01, value=300.0, step=0.01)
+        with col4:
+            s_entry = st.date_input("Entry date (optional)", value=None)
+
+        submitted_stock = st.form_submit_button("Fetch & Analyze", use_container_width=True)
+
+    if submitted_stock:
+        if not s_ticker:
+            st.error("Please enter a ticker symbol.")
+        else:
+            with st.spinner(f"Fetching data for {s_ticker}..."):
+                position = StockPosition(
+                    ticker=s_ticker,
+                    shares=s_shares,
+                    cost_basis=s_cost,
+                    entry_date=s_entry,
+                )
+                result = analyze_position(position)
+                if result.get("error"):
+                    st.error(result["error"])
+                else:
+                    st.session_state.result = result
+                    st.rerun()
+
+with tab_option:
+    # Step 1 — load expiry dates for a ticker (outside the form so it can rerender)
+    exp_col1, exp_col2 = st.columns([2, 1])
+    with exp_col1:
+        o_ticker_load = st.text_input(
+            "Ticker", value="GOOG", key="o_ticker_load"
+        ).upper().strip()
+    with exp_col2:
+        st.write("")  # vertical alignment nudge
+        st.write("")
+        load_expiries = st.button("Load expiry dates", use_container_width=True)
+
+    if load_expiries:
+        if not o_ticker_load:
+            st.error("Enter a ticker first.")
+        else:
+            with st.spinner(f"Fetching expiry dates for {o_ticker_load}..."):
+                expiries = fetch_expiry_dates(o_ticker_load)
+                if not expiries:
+                    st.error(f"No option expiry dates found for {o_ticker_load}.")
+                else:
+                    price = fetch_current_price(o_ticker_load) or 200.0
+                    st.session_state.option_expiries = expiries
+                    st.session_state.option_expiry_ticker = o_ticker_load
+                    st.session_state.option_ticker_price = float(price)
+
+    # Step 2 — expiry + type selectors (outside form so strikes can update dynamically)
+    if st.session_state.option_expiries and st.session_state.option_expiry_ticker == o_ticker_load:
+        pre_col1, pre_col2 = st.columns(2)
+        with pre_col1:
+            o_type = st.selectbox("Option Type", ["Call", "Put"], key="o_type").lower()
+        with pre_col2:
+            expiry_options = st.session_state.option_expiries
+            expiry_labels = [e.strftime("%b %d, %Y") for e in expiry_options]
+            o_expiry_idx = st.selectbox("Expiry date", range(len(expiry_labels)), format_func=lambda i: expiry_labels[i], key="o_expiry_idx")
+
+        o_expiry = expiry_options[o_expiry_idx]
+
+        # Fetch strikes whenever expiry or type changes
+        cache_key = (o_ticker_load, o_expiry, o_type)
+        if st.session_state.option_selected_expiry != cache_key:
+            with st.spinner("Loading strikes..."):
+                strikes = fetch_strikes_for_expiry(o_ticker_load, o_expiry, o_type)
+                st.session_state.option_strikes = strikes
+                st.session_state.option_selected_expiry = cache_key
+
+        # Step 3 — main form
+        with st.form("option_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                strikes_available = st.session_state.option_strikes
+                current_price = st.session_state.option_ticker_price
+                # Default to strike closest to current price
+                if strikes_available:
+                    closest_idx = min(range(len(strikes_available)), key=lambda i: abs(strikes_available[i] - current_price))
+                    o_strike = st.selectbox(
+                        "Strike price ($)",
+                        strikes_available,
+                        index=closest_idx,
+                        format_func=lambda s: f"${s:,.2f}",
+                    )
+                else:
+                    o_strike = st.number_input("Strike price ($)", min_value=0.01, value=current_price, step=0.50)
+                o_position = "long"
+            with col2:
+                o_premium = st.number_input(
+                    "Premium paid per share ($)",
+                    min_value=0.01, value=5.00, step=0.05,
+                    help="The price per share you paid. Multiply by 100 for total contract cost.",
+                )
+                o_contracts = st.number_input("Number of contracts", min_value=1, value=1, step=1)
+
+            submitted_option = st.form_submit_button("Fetch & Analyze", use_container_width=True)
+
+        if submitted_option:
+            with st.spinner(f"Fetching data for {o_ticker_load} options..."):
+                position = OptionPosition(
+                    ticker=o_ticker_load,
+                    option_type=o_type,
+                    position=o_position,
+                    strike=o_strike,
+                    expiry=o_expiry,
+                    premium=o_premium,
+                    contracts=int(o_contracts),
+                )
+                result = analyze_position(position)
+                if result.get("error"):
+                    st.error(result["error"])
+                else:
+                    st.session_state.result = result
+                    st.rerun()
+    elif not st.session_state.option_expiries:
+        st.caption("Enter a ticker and click **Load expiry dates** to continue.")
+
+
 # ---------------------------------------------------------------------------
 # Watchlist tab
 # ---------------------------------------------------------------------------
 with tab_watchlist:
-    st.markdown("### 📋 Watchlist")
+    st.markdown("### 📋 Saved Analysis")
+    if st.session_state.watchlist_just_analyzed:
+        _analyzed_ticker = st.session_state.watchlist_just_analyzed
+        _tab_name = "OPTIONS" if st.session_state.result and isinstance(st.session_state.result["position"], OptionPosition) else "STOCKS"
+        st.success(f"Analysis for **{_analyzed_ticker}** is ready — switch to the **{_tab_name}** tab to see it.")
+        st.session_state.watchlist_just_analyzed = None
     rows = load_watchlist()
 
     if not rows:
-        st.info("No saved positions yet. Analyze a position and click 'Save to watchlist'.")
+        st.info("No saved analyses yet. Analyze a position and click 'Save analysis'.")
     else:
         for i, row in enumerate(rows):
             pos_type = row.get("type", "")
@@ -917,7 +998,8 @@ with tab_watchlist:
                                 st.error(result["error"])
                             else:
                                 st.session_state.result = result
-                                st.success("Done — see results above in STOCKS or OPTIONS tab.")
+                                st.session_state.watchlist_just_analyzed = ticker
+                                st.rerun()
                         else:
                             st.error("Could not parse saved position.")
                 with col_delete:

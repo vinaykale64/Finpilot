@@ -112,6 +112,35 @@ def _bs_price(option_type: str, S: float, K: float, iv: float, T: float, r: floa
         return K * disc * _norm_cdf(-d2) - S * _norm_cdf(-d1)
 
 
+def implied_vol(
+    option_type: str, S: float, K: float, market_price: float, expiry: date, r: float = RISK_FREE_RATE
+) -> Optional[float]:
+    """Back-solve implied volatility from a market price using bisection."""
+    T = (expiry - date.today()).days / 365.0
+    if T <= 0 or market_price <= 0 or S <= 0 or K <= 0:
+        return None
+    lo, hi = 0.001, 10.0
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        val = _bs_price(option_type, S, K, mid, T, r)
+        if val < market_price:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 0.00005:
+            break
+    result = (lo + hi) / 2.0
+    return result if result > 0.001 else None
+
+
+def bs_option_value(option_type: str, S: float, K: float, iv: float, expiry: date, r: float = RISK_FREE_RATE) -> Optional[float]:
+    """Theoretical Black-Scholes value for the option at stock price S today."""
+    T = (expiry - date.today()).days / 365.0
+    if T <= 0 or iv <= 0 or S <= 0 or K <= 0:
+        return None
+    return _bs_price(option_type, S, K, iv, T, r)
+
+
 def probability_of_profit(
     option_type: str, S: float, K: float, iv: float, expiry: date, r: float = RISK_FREE_RATE
 ) -> Optional[float]:
