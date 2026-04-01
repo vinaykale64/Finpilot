@@ -806,13 +806,15 @@ def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
         result["scenarios"], result["overall_analysis"] = generate_all_narratives(
             result["scenarios"],
             position,
-            result["current_mark"] if isinstance(position, OptionPosition) else result["current_price"],
+            result["current_price"],
             result["events"],
             OPENROUTER_KEY,
             st.session_state.selected_model,
             result.get("analyst"),
             result.get("snapshot"),
             result.get("finviz"),
+            current_mark=result.get("current_mark"),
+            greeks=result.get("greeks"),
         )
 
     return result

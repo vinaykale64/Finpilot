@@ -26,6 +26,8 @@ def _build_position_context(
     position: Union[StockPosition, OptionPosition],
     current_price: float,
     events: list,
+    current_mark: float = None,
+    greeks=None,
 ) -> str:
     lines = []
 
@@ -39,18 +41,33 @@ def _build_position_context(
             f"({sign} {abs(pnl_pct):.1f}%, {'+' if pnl >= 0 else ''}{pnl:,.2f} total)."
         )
     else:
-        current_mark = current_price
-        pnl = position.pnl(current_mark)
+        mark = current_mark if current_mark is not None else 0.0
+        pnl = position.pnl(mark)
+        pnl_pct = position.pnl_pct(mark)
         sign = "up" if pnl >= 0 else "down"
+        total_cost = position.premium * 100 * position.contracts
         lines.append(
             f"Position: {position.contracts} {position.position} {position.option_type} contract(s) on "
-            f"{position.ticker.upper()}, strike ${position.strike:,.2f}, expires {position.expiry.strftime('%b %d, %Y')}. "
-            f"Paid ${position.premium:,.2f}/share, now worth ~${current_mark:,.2f}/share ({sign} ${abs(pnl):,.2f} total). "
-            f"Break-even: ${position.breakeven_price():,.2f}. Days to expiry: {position.days_to_expiry}."
+            f"{position.ticker.upper()}. "
+            f"Strike ${position.strike:,.2f}, expires {position.expiry.strftime('%b %d, %Y')} "
+            f"({position.days_to_expiry} days). "
+            f"Stock is currently at ${current_price:,.2f}. "
+            f"Paid ${position.premium:,.2f}/share (${total_cost:,.2f} total cost). "
+            f"Option now worth ${mark:,.2f}/share "
+            f"({sign} {abs(pnl_pct):.1f}%, {'+' if pnl >= 0 else ''}${abs(pnl):,.2f} total P&L). "
+            f"Break-even stock price: ${position.breakeven_price():,.2f}."
         )
+        if greeks:
+            iv_pct = greeks.iv if greeks.iv else 0
+            lines.append(
+                f"Greeks: delta {greeks.delta:+.3f} (option moves ${abs(greeks.delta):.2f} per $1 stock move), "
+                f"theta ${greeks.theta:+,.2f}/day (time decay cost), "
+                f"vega ${greeks.vega:+,.2f} per 1% IV change. "
+                f"Implied volatility: {iv_pct:.1f}%."
+            )
 
     if events:
-        upcoming = [e for e in events if e.days_away >= 0][:3]
+        upcoming = [e for e in events if e.days_away >= 0][:4]
         if upcoming:
             event_strs = [f"{e.label} ({e.days_away} days away)" for e in upcoming]
             lines.append("Upcoming events: " + "; ".join(event_strs) + ".")
@@ -169,6 +186,8 @@ def generate_combined_analysis(
     analyst: dict = None,
     snapshot: dict = None,
     finviz: dict = None,
+    current_mark: float = None,
+    greeks=None,
 ) -> dict:
     """
     Single LLM call covering all scenarios.
@@ -181,7 +200,7 @@ def generate_combined_analysis(
     try:
         client = OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
 
-        position_context = _build_position_context(position, current_price, events)
+        position_context = _build_position_context(position, current_price, events, current_mark, greeks)
         analyst_context = _build_analyst_context(analyst or {})
         snapshot_context = _build_snapshot_context(snapshot or {})
         finviz_context = _build_finviz_context(finviz or {})
@@ -247,10 +266,13 @@ def generate_all_narratives(
     analyst: dict = None,
     snapshot: dict = None,
     finviz: dict = None,
+    current_mark: float = None,
+    greeks=None,
 ) -> list:
     """Attach per-scenario narratives using a single combined LLM call."""
     result = generate_combined_analysis(
-        scenarios, position, current_price, events, api_key, model, analyst, snapshot, finviz
+        scenarios, position, current_price, events, api_key, model, analyst, snapshot, finviz,
+        current_mark=current_mark, greeks=greeks,
     )
     for i, scenario in enumerate(scenarios):
         scenario.narrative = result["summaries"][i]
