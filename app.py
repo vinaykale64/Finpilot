@@ -41,6 +41,258 @@ st.set_page_config(
 
 DEFAULT_LLM_MODEL = "anthropic/claude-sonnet-4-6"
 
+
+# ---------------------------------------------------------------------------
+# Global styles
+# ---------------------------------------------------------------------------
+def _inject_styles():
+    st.html("""
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0a0b;
+  --surface:  #111113;
+  --border:   #1e1e22;
+  --accent:   #f0b429;
+  --up:       #00d97e;
+  --down:     #ff4560;
+  --muted:    #555566;
+  --text:     #e8e8f0;
+}
+
+/* ---- Base ---- */
+html, body, [data-testid="stAppViewContainer"] {
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+}
+[data-testid="stSidebar"] {
+  background-color: var(--surface) !important;
+  border-right: 1px solid var(--border) !important;
+}
+[data-testid="stHeader"] {
+  background-color: var(--bg) !important;
+}
+
+/* ---- Tab bar ---- */
+[data-testid="stTabs"] [role="tablist"] {
+  border-bottom: 1px solid var(--border) !important;
+  gap: 0 !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--muted) !important;
+  padding: 8px 20px !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  transition: color 0.15s, border-color 0.15s !important;
+}
+[data-testid="stTabs"] [role="tab"]:hover {
+  color: var(--text) !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+  color: var(--accent) !important;
+  border-bottom: 2px solid var(--accent) !important;
+  background: transparent !important;
+}
+
+/* ---- Buttons ---- */
+[data-testid="stButton"] > button {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--accent) !important;
+  background: transparent !important;
+  border: 1px solid var(--accent) !important;
+  border-radius: 2px !important;
+  padding: 6px 14px !important;
+  transition: background 0.15s, color 0.15s !important;
+}
+[data-testid="stButton"] > button:hover {
+  background: var(--accent) !important;
+  color: #000 !important;
+}
+
+/* ---- Form inputs ---- */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stDateInput"] input {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.85rem !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 2px !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px var(--accent) !important;
+}
+
+/* ---- Labels ---- */
+[data-testid="stTextInput"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stSelectbox"] label,
+[data-testid="stDateInput"] label,
+[data-testid="stRadio"] label {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--muted) !important;
+}
+
+/* ---- Metrics ---- */
+[data-testid="stMetric"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 2px !important;
+  padding: 10px 14px !important;
+}
+[data-testid="stMetricLabel"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--muted) !important;
+}
+[data-testid="stMetricValue"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 1.05rem !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+}
+[data-testid="stMetricDelta"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.78rem !important;
+}
+
+/* ---- Containers / cards ---- */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 2px !important;
+}
+
+/* ---- Info / alert boxes ---- */
+[data-testid="stAlert"] {
+  background: #0f0f0a !important;
+  border: 1px solid var(--accent) !important;
+  border-left: 3px solid var(--accent) !important;
+  border-radius: 2px !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.83rem !important;
+  color: var(--text) !important;
+}
+
+/* ---- Expanders ---- */
+[data-testid="stExpander"] {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 2px !important;
+}
+[data-testid="stExpander"] summary {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--muted) !important;
+}
+[data-testid="stExpander"] summary:hover {
+  color: var(--text) !important;
+}
+
+/* ---- Dividers ---- */
+hr {
+  border-color: var(--border) !important;
+}
+
+/* ---- Captions ---- */
+[data-testid="stCaptionContainer"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.78rem !important;
+  color: var(--muted) !important;
+}
+
+/* ---- Headings ---- */
+h1, h2, h3 {
+  font-family: 'Syne', sans-serif !important;
+  letter-spacing: -0.01em !important;
+  color: var(--text) !important;
+}
+
+/* ---- Section header utility class ---- */
+.fp-section-header {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 7px;
+  margin: 24px 0 14px;
+}
+
+/* ---- App header bar ---- */
+.fp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.fp-header-logo {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+.fp-header-tagline {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  margin-left: 16px;
+}
+.fp-header-date {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- Disclaimer banner ---- */
+.fp-disclaimer {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid #333;
+  border-radius: 2px;
+  padding: 8px 14px;
+  margin-bottom: 18px;
+  line-height: 1.6;
+}
+</style>
+""")
+
+_inject_styles()
+
 URGENCY_COLOR = {
     "critical": "#ff4b4b",
     "soon": "#ffa500",
@@ -90,19 +342,40 @@ if "watchlist_just_analyzed" not in st.session_state:
 
 
 # ---------------------------------------------------------------------------
-# Sidebar — API key + model
+# Sidebar — lean version
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.title("✈️ Finpilot")
-    st.caption("Know your options.")
+    st.markdown(
+        "<div style='font-family:Syne,sans-serif;font-size:1.1rem;font-weight:800;"
+        "letter-spacing:0.1em;color:#f0b429;text-transform:uppercase;padding:8px 0 4px'>✈ Finpilot</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;"
+        "color:#555566;letter-spacing:0.08em;padding-bottom:12px'>Know your options.</div>",
+        unsafe_allow_html=True,
+    )
     st.divider()
 
-    st.caption(
-        "⚠️ **Disclaimer:** Finpilot is an informational tool only. Nothing here constitutes "
-        "financial advice, a recommendation to buy or sell, or a solicitation of any kind. "
-        "All analysis is generated automatically and may not reflect current market conditions. "
-        "Always do your own research and consult a qualified financial advisor."
-    )
+# ---------------------------------------------------------------------------
+# App header bar (main content area)
+# ---------------------------------------------------------------------------
+from datetime import datetime as _dt
+st.markdown(
+    f"""<div class="fp-header">
+      <div>
+        <span class="fp-header-logo">✈ Finpilot</span>
+        <span class="fp-header-tagline">/ know your options</span>
+      </div>
+      <div class="fp-header-date">{_dt.today().strftime("%b %d, %Y")} &nbsp;·&nbsp; Live data</div>
+    </div>
+    <div class="fp-disclaimer">
+      ⚠ Informational tool only. Nothing here constitutes financial advice, a recommendation
+      to buy or sell, or a solicitation of any kind. Always do your own research and consult
+      a qualified financial advisor.
+    </div>""",
+    unsafe_allow_html=True,
+)
 
 
 
@@ -110,27 +383,60 @@ with st.sidebar:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def render_event_banner(event: MarketEvent):
-    color = URGENCY_COLOR[event.urgency]
-    icon = EVENT_ICON[event.event_type]
-    urgency_label = {"critical": "URGENT", "soon": "SOON", "on_radar": "UPCOMING"}[event.urgency]
+def section_header(title: str):
+    st.markdown(f"<div class='fp-section-header'>{title}</div>", unsafe_allow_html=True)
 
-    if event.event_type == "earnings":
-        detail = "Stock prices can move sharply. Options often get more expensive before earnings, then drop right after."
-    elif event.event_type == "ex_dividend":
-        detail = "If you're short a call option, early assignment risk increases around this date."
-    elif event.event_type == "fed_meeting":
-        detail = "Fed rate decisions can move the whole market. High uncertainty before the meeting often raises option prices."
-    else:
-        detail = "After this date the option has no value — decisions become urgent."
 
-    st.markdown(
-        f"""<div style="border-left: 4px solid {color}; padding: 6px 10px; margin: 3px 0;
-                        background: {color}18; border-radius: 4px; font-size: 0.85em;">
-            <strong style="color:{color}">{icon} {urgency_label}: {event.label}</strong><br>
-            <span style="color:#888">{detail}</span>
-        </div>""",
-        unsafe_allow_html=True,
+def render_event_pills(events: list):
+    """Render upcoming events as a compact row of inline pills."""
+    DETAIL = {
+        "earnings":    "Prices can move sharply. IV often rises before, then drops after.",
+        "ex_dividend": "Short call holders face early assignment risk around this date.",
+        "fed_meeting": "Rate decisions move the whole market; raises option premiums.",
+        "expiry":      "Option expires worthless after this date — act before then.",
+    }
+    URGENCY_LABEL = {"critical": "URGENT", "soon": "SOON", "on_radar": "UPCOMING"}
+
+    pills = []
+    for event in events:
+        color = URGENCY_COLOR[event.urgency]
+        icon = EVENT_ICON[event.event_type]
+        label = URGENCY_LABEL[event.urgency]
+        days = event.days_away
+        days_str = f"{days}d" if days >= 0 else "today"
+        pills.append(
+            f"<span title='{DETAIL[event.event_type]}' style='"
+            f"display:inline-flex;align-items:center;gap:5px;"
+            f"font-family:IBM Plex Mono,monospace;font-size:0.67rem;font-weight:600;"
+            f"letter-spacing:0.08em;text-transform:uppercase;"
+            f"color:{color};background:{color}18;"
+            f"border:1px solid {color}44;border-radius:2px;"
+            f"padding:4px 9px;white-space:nowrap'>"
+            f"{icon} {label} &nbsp;·&nbsp; {event.date.strftime('%b %d')} &nbsp;·&nbsp; {days_str}"
+            f"</span>"
+        )
+
+    if pills:
+        st.html(
+            f"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'>"
+            f"{''.join(pills)}</div>"
+        )
+
+
+def _stat_tile(label: str, value: str, sub: str = "", value_color: str = "var(--text)") -> str:
+    """Return HTML for a single stat tile used in snapshot/technicals grids."""
+    sub_html = (
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.7rem;"
+        f"color:var(--muted);margin-top:3px'>{sub}</div>"
+    ) if sub else ""
+    return (
+        f"<div style='padding:10px 14px;background:var(--surface);"
+        f"border:1px solid var(--border);border-radius:2px'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;"
+        f"letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:5px'>{label}</div>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.92rem;"
+        f"font-weight:600;color:{value_color}'>{value}</div>"
+        f"{sub_html}</div>"
     )
 
 
@@ -148,57 +454,55 @@ def render_stock_snapshot(snapshot: dict, current_price: float):
     rg = snapshot.get("revenue_growth")
     sr = snapshot.get("short_ratio")
 
-    cols = st.columns(4)
+    tiles = []
 
-    # 52-week range with mini progress bar
-    with cols[0]:
-        if low and high:
-            pct = (current_price - low) / (high - low) * 100 if high != low else 50
-            pct = max(0, min(100, pct))
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>52-week range</div>", unsafe_allow_html=True)
-            st.markdown(
-                f"<div style='font-size:0.82em'>${low:,.0f} — ${high:,.0f}</div>"
-                f"<div style='background:#333; border-radius:4px; height:6px; margin:4px 0'>"
-                f"<div style='background:#00c57a; width:{pct:.0f}%; height:6px; border-radius:4px'></div></div>"
-                f"<div style='font-size:0.75em; color:#888'>{pct:.0f}% of range</div>",
-                unsafe_allow_html=True,
-            )
+    if low and high:
+        pct = (current_price - low) / (high - low) * 100 if high != low else 50
+        pct = max(0, min(100, pct))
+        bar = (
+            f"<div style='background:var(--border);border-radius:1px;height:4px;margin:6px 0 3px'>"
+            f"<div style='background:var(--up);width:{pct:.0f}%;height:4px;border-radius:1px'></div></div>"
+            f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;color:var(--muted)'>"
+            f"&#36;{low:,.0f} &nbsp;—&nbsp; &#36;{high:,.0f} &nbsp;·&nbsp; {pct:.0f}% of range</div>"
+        )
+        tiles.append(
+            f"<div style='padding:10px 14px;background:var(--surface);"
+            f"border:1px solid var(--border);border-radius:2px'>"
+            f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;"
+            f"letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:5px'>52-Week Range</div>"
+            f"{bar}</div>"
+        )
 
-    with cols[1]:
-        if beta is not None:
-            color = "#ffa500" if beta > 1.3 else "#00c57a" if beta < 0.8 else "#888"
-            label = "high volatility" if beta > 1.3 else "low volatility" if beta < 0.8 else "avg volatility"
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Beta</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:1.1em; font-weight:600'>{beta:.2f}</div>"
-                        f"<div style='font-size:0.75em; color:{color}'>{label}</div>", unsafe_allow_html=True)
-        if sr is not None:
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>Short ratio</div>"
-                        f"<div style='font-size:0.9em'>{sr:.1f} days to cover</div>", unsafe_allow_html=True)
+    if beta is not None:
+        b_color = "var(--accent)" if beta > 1.3 else "var(--up)" if beta < 0.8 else "var(--muted)"
+        b_label = "High vol" if beta > 1.3 else "Low vol" if beta < 0.8 else "Avg vol"
+        tiles.append(_stat_tile("Beta", f"{beta:.2f}", b_label, b_color))
 
-    with cols[2]:
-        if vol and avg_vol:
-            ratio = vol / avg_vol
-            vol_color = "#ffa500" if ratio > 1.5 else "#888"
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Volume</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='font-size:0.9em; font-weight:600; color:{vol_color}'>{ratio:.1f}x avg</div>"
-                        f"<div style='font-size:0.75em; color:#888'>{vol/1e6:.1f}M vs {avg_vol/1e6:.1f}M avg</div>",
-                        unsafe_allow_html=True)
-        if eg is not None or rg is not None:
-            parts = []
-            if eg is not None: parts.append(f"EPS {eg*100:+.0f}%")
-            if rg is not None: parts.append(f"Rev {rg*100:+.0f}%")
-            g_color = "#00c57a" if (eg or 0) > 0 else "#ff4b4b"
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>YoY growth</div>"
-                        f"<div style='font-size:0.9em; color:{g_color}'>{' · '.join(parts)}</div>",
-                        unsafe_allow_html=True)
+    if vol and avg_vol:
+        ratio = vol / avg_vol
+        v_color = "var(--accent)" if ratio > 1.5 else "var(--muted)"
+        tiles.append(_stat_tile("Volume", f"{ratio:.1f}x avg", f"{vol/1e6:.1f}M vs {avg_vol/1e6:.1f}M", v_color))
 
-    with cols[3]:
-        if fpe is not None:
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-bottom:2px'>Forward P/E</div>"
-                        f"<div style='font-size:1.1em; font-weight:600'>{fpe:.1f}x</div>", unsafe_allow_html=True)
-        if tpe is not None:
-            st.markdown(f"<div style='font-size:0.75em; color:#888; margin-top:6px'>Trailing P/E</div>"
-                        f"<div style='font-size:0.9em'>{tpe:.1f}x</div>", unsafe_allow_html=True)
+    if eg is not None or rg is not None:
+        parts = []
+        if eg is not None: parts.append(f"EPS {eg*100:+.0f}%")
+        if rg is not None: parts.append(f"Rev {rg*100:+.0f}%")
+        g_color = "var(--up)" if (eg or 0) > 0 else "var(--down)"
+        tiles.append(_stat_tile("YoY Growth", " · ".join(parts), value_color=g_color))
+
+    if fpe is not None:
+        tiles.append(_stat_tile("Forward P/E", f"{fpe:.1f}x", f"Trailing {tpe:.1f}x" if tpe else ""))
+
+    if sr is not None:
+        tiles.append(_stat_tile("Short Ratio", f"{sr:.1f}d", "days to cover"))
+
+    if tiles:
+        cols_html = "".join(
+            f"<div style='flex:1;min-width:140px'>{t}</div>" for t in tiles
+        )
+        st.html(
+            f"<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px'>{cols_html}</div>"
+        )
 
 
 def render_finviz(finviz: dict):
@@ -206,10 +510,8 @@ def render_finviz(finviz: dict):
         return
     tech = finviz.get("technicals") or {}
     perf = finviz.get("performance") or {}
-    news = finviz.get("news") or []
 
-    # --- Technicals + Performance (collapsed by default) ---
-    with st.expander("📊 Technicals & Performance", expanded=False):
+    with st.expander("Technicals & Performance", expanded=False):
         rsi = tech.get("rsi14")
         sma20 = tech.get("sma20_pct")
         sma50 = tech.get("sma50_pct")
@@ -217,30 +519,17 @@ def render_finviz(finviz: dict):
         vol_w = tech.get("volatility_w")
         vol_m = tech.get("volatility_m")
 
-        if any(v is not None for v in [rsi, sma20, sma50, sma200]):
-            st.markdown("**Technicals**")
-            tcols = st.columns(5)
-            with tcols[0]:
-                if rsi is not None:
-                    rsi_color = "#ff4b4b" if rsi > 70 else "#00c57a" if rsi < 30 else "#888"
-                    rsi_label = "Overbought" if rsi > 70 else "Oversold" if rsi < 30 else "Neutral"
-                    st.markdown(f"<div style='font-size:0.75em;color:#888'>RSI (14)</div>"
-                                f"<div style='font-size:1.1em;font-weight:600;color:{rsi_color}'>{rsi:.1f}</div>"
-                                f"<div style='font-size:0.75em;color:{rsi_color}'>{rsi_label}</div>",
-                                unsafe_allow_html=True)
-            for col, val, label in zip(tcols[1:4], [sma20, sma50, sma200], ["vs SMA20", "vs SMA50", "vs SMA200"]):
-                with col:
-                    if val is not None:
-                        c = "#00c57a" if val >= 0 else "#ff4b4b"
-                        st.markdown(f"<div style='font-size:0.75em;color:#888'>{label}</div>"
-                                    f"<div style='font-size:1.0em;font-weight:600;color:{c}'>{val:+.1f}%</div>",
-                                    unsafe_allow_html=True)
-            with tcols[4]:
-                if vol_w is not None and vol_m is not None:
-                    st.markdown(f"<div style='font-size:0.75em;color:#888'>Volatility</div>"
-                                f"<div style='font-size:0.85em'>1W: <b>{vol_w:.1f}%</b></div>"
-                                f"<div style='font-size:0.85em'>1M: <b>{vol_m:.1f}%</b></div>",
-                                unsafe_allow_html=True)
+        tech_tiles = []
+        if rsi is not None:
+            rsi_color = "var(--down)" if rsi > 70 else "var(--up)" if rsi < 30 else "var(--muted)"
+            rsi_label = "Overbought" if rsi > 70 else "Oversold" if rsi < 30 else "Neutral"
+            tech_tiles.append(_stat_tile("RSI (14)", f"{rsi:.1f}", rsi_label, rsi_color))
+        for val, label in [(sma20, "vs SMA20"), (sma50, "vs SMA50"), (sma200, "vs SMA200")]:
+            if val is not None:
+                c = "var(--up)" if val >= 0 else "var(--down)"
+                tech_tiles.append(_stat_tile(label, f"{val:+.1f}%", value_color=c))
+        if vol_w is not None and vol_m is not None:
+            tech_tiles.append(_stat_tile("Volatility", f"{vol_w:.1f}%", f"1M: {vol_m:.1f}%"))
 
         perf_items = [
             ("1W",  perf.get("perf_week")),
@@ -249,16 +538,20 @@ def render_finviz(finviz: dict):
             ("YTD", perf.get("perf_ytd")),
             ("1Y",  perf.get("perf_year")),
         ]
-        if any(v is not None for _, v in perf_items):
-            st.markdown("**Performance**")
-            pcols = st.columns(5)
-            for col, (label, val) in zip(pcols, perf_items):
-                with col:
-                    if val is not None:
-                        c = "#00c57a" if val >= 0 else "#ff4b4b"
-                        st.markdown(f"<div style='font-size:0.75em;color:#888'>{label}</div>"
-                                    f"<div style='font-size:1.0em;font-weight:600;color:{c}'>{val:+.1f}%</div>",
-                                    unsafe_allow_html=True)
+        perf_tiles = []
+        for label, val in perf_items:
+            if val is not None:
+                c = "var(--up)" if val >= 0 else "var(--down)"
+                perf_tiles.append(_stat_tile(label, f"{val:+.1f}%", value_color=c))
+
+        all_tiles = tech_tiles + perf_tiles
+        if all_tiles:
+            cols_html = "".join(
+                f"<div style='flex:1;min-width:100px'>{t}</div>" for t in all_tiles
+            )
+            st.html(
+                f"<div style='display:flex;flex-wrap:wrap;gap:8px'>{cols_html}</div>"
+            )
 
     # News is rendered in the Timeline & News pane
 
@@ -341,26 +634,85 @@ def render_timeline(events: list, end_date: date, end_label: str):
     st.plotly_chart(fig, use_container_width=True)
 
 
+def render_position_summary(items: list):
+    """
+    Render a horizontal terminal-style stat bar.
+    items: list of (label, value, is_pnl) where is_pnl colors the cell green/red.
+    """
+    cells = []
+    for label, value, is_pnl in items:
+        if is_pnl:
+            is_pos = not str(value).startswith("-") and "(-" not in str(value)
+            val_color = "var(--up)" if is_pos else "var(--down)"
+            bg = "rgba(0,217,126,0.07)" if is_pos else "rgba(255,69,96,0.07)"
+            border_top = f"2px solid {val_color}"
+        else:
+            val_color = "var(--text)"
+            bg = "var(--surface)"
+            border_top = "2px solid var(--border)"
+
+        cells.append(
+            f"<div style='flex:1;min-width:0;padding:10px 14px;background:{bg};"
+            f"border-top:{border_top};border-right:1px solid var(--border)'>"
+            f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;"
+            f"letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);"
+            f"margin-bottom:5px'>{label}</div>"
+            f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.92rem;"
+            f"font-weight:600;color:{val_color};white-space:nowrap;overflow:hidden;"
+            f"text-overflow:ellipsis'>{value}</div>"
+            f"</div>"
+        )
+
+    st.html(
+        f"<div style='display:flex;border:1px solid var(--border);border-right:none;"
+        f"border-radius:2px;margin-bottom:18px;overflow:hidden'>"
+        f"{''.join(cells)}</div>"
+    )
+
+
 def render_scenario_card(scenario: Scenario, index: int):
-    with st.container(border=True):
-        st.markdown(f"**{index + 1}. {scenario.action_label}**")
+    accent = index == 0
+    left_border = "3px solid var(--accent)" if accent else "3px solid var(--border)"
+    num_color = "var(--accent)" if accent else "var(--muted)"
 
-        # Key numbers — vertical layout avoids truncation
-        kn_lines = "".join(
-            f"<tr><td style='color:#888; padding: 2px 12px 2px 0; white-space:nowrap'>{label}</td>"
-            f"<td style='font-weight:600; padding: 2px 0'>{value}</td></tr>"
-            for label, value in scenario.key_numbers.items()
-        )
-        st.markdown(
-            f"<table style='border-collapse:collapse; margin: 4px 0 6px 0; font-size:0.9em'>{kn_lines}</table>",
-            unsafe_allow_html=True,
-        )
+    kn_rows = "".join(
+        f"<tr>"
+        f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;letter-spacing:0.08em;"
+        f"text-transform:uppercase;color:var(--muted);padding:3px 20px 3px 0;white-space:nowrap'>{label}</td>"
+        f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.88rem;font-weight:600;"
+        f"color:var(--text);padding:3px 0;white-space:nowrap'>{value}</td>"
+        f"</tr>"
+        for label, value in scenario.key_numbers.items()
+    )
 
-        st.markdown("**Analysis**")
-        tradeoff_safe = scenario.tradeoff.replace("$", r"\$")
-        st.caption(tradeoff_safe)
-        if scenario.narrative:
-            st.caption(scenario.narrative.replace("$", r"\$"))
+    tradeoff = scenario.tradeoff.replace("$", "&#36;")
+    narrative = scenario.narrative.replace("$", "&#36;") if scenario.narrative else ""
+    narrative_block = (
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.78rem;line-height:1.65;"
+        f"color:var(--muted);margin-top:6px'>{narrative}</div>"
+    ) if narrative else ""
+
+    st.html(
+        f"<div style='border:1px solid var(--border);border-left:{left_border};"
+        f"border-radius:2px;padding:16px 18px;margin-bottom:10px;background:var(--surface)'>"
+
+        f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:12px'>"
+        f"<span style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;font-weight:600;"
+        f"color:{num_color};letter-spacing:0.12em'>{index+1:02d}</span>"
+        f"<span style='font-family:Syne,sans-serif;font-size:1.0rem;font-weight:700;"
+        f"letter-spacing:0.02em;color:var(--text);text-transform:uppercase'>{scenario.action_label}</span>"
+        f"</div>"
+
+        f"<table style='border-collapse:collapse;margin-bottom:12px'>{kn_rows}</table>"
+
+        f"<div style='border-top:1px solid var(--border);padding-top:10px'>"
+        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.78rem;line-height:1.65;"
+        f"color:#8888aa'>{tradeoff}</div>"
+        f"{narrative_block}"
+        f"</div>"
+
+        f"</div>"
+    )
 
 
 def analyze_position(position: Union[StockPosition, OptionPosition]) -> dict:
@@ -518,13 +870,13 @@ if st.session_state.result is not None:
             pnl = pos.pnl(current_price)
             pnl_pct = pos.pnl_pct(current_price)
             sign = "+" if pnl >= 0 else ""
-
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Ticker", ticker)
-            col2.metric("Type", "Stock")
-            col3.metric("You paid", f"${pos.cost_basis:,.2f}/share")
-            col4.metric("Current price", f"${current_price:,.2f}")
-            col5.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
+            render_position_summary([
+                ("Ticker",        ticker,                                False),
+                ("Type",          "Stock",                               False),
+                ("You paid",      f"${pos.cost_basis:,.2f} / share",    False),
+                ("Current price", f"${current_price:,.2f}",             False),
+                ("P&L",           f"{sign}${abs(pnl):,.2f} ({sign}{pnl_pct:.1f}%)", True),
+            ])
 
         else:
             current_mark = entry["current_mark"]
@@ -533,16 +885,16 @@ if st.session_state.result is not None:
             sign = "+" if pnl >= 0 else ""
             _iv = (entry["greeks"].iv / 100.0) if entry.get("greeks") else 0.35
             _pop = probability_of_profit(pos.option_type, current_price, pos.strike, _iv, pos.expiry)
-
-            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns(8)
-            col1.metric("Ticker", ticker)
-            col2.metric("Type", f"{pos.position.title()} {pos.option_type.title()}")
-            col3.metric("Strike", f"${pos.strike:,.2f}")
-            col4.metric("Expires", pos.expiry.strftime("%b %d, %Y"))
-            col5.metric("Stock price now", f"${current_price:,.2f}")
-            col6.metric("Option value now", f"${current_mark:,.2f}/share")
-            col7.metric("Your P&L", f"{sign}${abs(pnl):,.2f}", delta=f"{sign}{pnl_pct:.1f}%")
-            col8.metric("Prob. of profit", f"{_pop:.1f}%" if _pop is not None else "—")
+            render_position_summary([
+                ("Ticker",        ticker,                                                    False),
+                ("Type",          f"{pos.position.title()} {pos.option_type.title()}",      False),
+                ("Strike",        f"${pos.strike:,.2f}",                                   False),
+                ("Expires",       pos.expiry.strftime("%b %d, %Y"),                        False),
+                ("Stock price",   f"${current_price:,.2f}",                                False),
+                ("Option value",  f"${current_mark:,.2f} / share",                        False),
+                ("P&L",           f"{sign}${abs(pnl):,.2f} ({sign}{pnl_pct:.1f}%)",       True),
+                ("Prob. profit",  f"{_pop:.1f}%" if _pop is not None else "—",             False),
+            ])
 
         # --- Option value vs stock price chart (options only) ---
         if isinstance(pos, OptionPosition) and entry.get("greeks"):
@@ -709,59 +1061,66 @@ if st.session_state.result is not None:
         changes = analyst.get("recent_changes") if analyst else None
 
         if snapshot or finviz or pt or summary or changes:
-            with st.expander("📊 Market context", expanded=False):
+            with st.expander("Market Context", expanded=False):
                 if snapshot:
                     render_stock_snapshot(snapshot, current_price)
                 if finviz:
                     render_finviz(finviz)
                 if pt or summary or changes:
-                    st.markdown("**Analyst ratings**")
+                    section_header("Analyst Ratings")
                     col_a, col_b = st.columns([1, 1])
                     with col_a:
                         if summary:
                             total = summary["strong_buy"] + summary["buy"] + summary["hold"] + summary["sell"] + summary["strong_sell"]
                             bullish = summary["strong_buy"] + summary["buy"]
-                            rows = "".join([
-                                f"<tr><td style='color:#00c57a; padding:2px 10px 2px 0'>Strong Buy</td><td style='font-weight:600'>{summary['strong_buy']}</td></tr>",
-                                f"<tr><td style='color:#7ec87e; padding:2px 10px 2px 0'>Buy</td><td style='font-weight:600'>{summary['buy']}</td></tr>",
-                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Hold</td><td style='font-weight:600'>{summary['hold']}</td></tr>",
-                                f"<tr><td style='color:#ffa07a; padding:2px 10px 2px 0'>Sell</td><td style='font-weight:600'>{summary['sell']}</td></tr>",
-                                f"<tr><td style='color:#ff4b4b; padding:2px 10px 2px 0'>Strong Sell</td><td style='font-weight:600'>{summary['strong_sell']}</td></tr>",
+                            rating_rows = "".join([
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:var(--up);padding:3px 14px 3px 0'>Strong Buy</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>{summary['strong_buy']}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:var(--up);padding:3px 14px 3px 0'>Buy</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>{summary['buy']}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:var(--muted);padding:3px 14px 3px 0'>Hold</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>{summary['hold']}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:var(--down);padding:3px 14px 3px 0'>Sell</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>{summary['sell']}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;color:var(--down);padding:3px 14px 3px 0'>Strong Sell</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>{summary['strong_sell']}</td></tr>",
                             ])
-                            st.markdown(
-                                f"<div style='font-size:0.85em; margin-bottom:4px; color:#aaa'>{bullish}/{total} analysts bullish</div>"
-                                f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
-                                unsafe_allow_html=True,
+                            st.html(
+                                f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;"
+                                f"letter-spacing:0.08em;color:var(--muted);margin-bottom:8px'>"
+                                f"{bullish}/{total} analysts bullish</div>"
+                                f"<table style='border-collapse:collapse'>{rating_rows}</table>"
                             )
                     with col_b:
                         if pt:
                             upside = ((pt["mean"] - current_price) / current_price * 100)
-                            upside_color = "#00c57a" if upside >= 0 else "#ff4b4b"
-                            rows = "".join([
-                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Mean target</td><td style='font-weight:600'>${pt['mean']:,.2f} <span style='color:{upside_color}; font-size:0.85em'>({upside:+.1f}%)</span></td></tr>",
-                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Median target</td><td style='font-weight:600'>${pt['median']:,.2f}</td></tr>",
-                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>High target</td><td style='font-weight:600'>${pt['high']:,.2f}</td></tr>",
-                                f"<tr><td style='color:#888; padding:2px 10px 2px 0'>Low target</td><td style='font-weight:600'>${pt['low']:,.2f}</td></tr>",
+                            u_color = "var(--up)" if upside >= 0 else "var(--down)"
+                            pt_rows = "".join([
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:3px 14px 3px 0'>Mean</td>"
+                                f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>&#36;{pt['mean']:,.2f} <span style='color:{u_color};font-size:0.8em'>({upside:+.1f}%)</span></td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:3px 14px 3px 0'>Median</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>&#36;{pt['median']:,.2f}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:3px 14px 3px 0'>High</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>&#36;{pt['high']:,.2f}</td></tr>",
+                                f"<tr><td style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);padding:3px 14px 3px 0'>Low</td><td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;color:var(--text)'>&#36;{pt['low']:,.2f}</td></tr>",
                             ])
-                            st.markdown(
-                                f"<table style='border-collapse:collapse; font-size:0.9em'>{rows}</table>",
-                                unsafe_allow_html=True,
-                            )
+                            st.html(f"<table style='border-collapse:collapse;margin-bottom:12px'>{pt_rows}</table>")
                         if changes:
-                            st.markdown("<div style='font-size:0.8em; color:#aaa; margin-top:10px'>Recent actions</div>", unsafe_allow_html=True)
+                            change_items = []
                             for c in changes[:4]:
-                                action_color = "#00c57a" if c["action"] in ("upgrade", "init") else "#ffa500" if c["action"] == "main" else "#ff4b4b"
-                                st.markdown(
-                                    f"<div style='font-size:0.82em; margin:2px 0'>"
-                                    f"<span style='color:{action_color}'>●</span> "
-                                    f"<strong>{c['firm']}</strong> — {c['to_grade']}"
-                                    f"{'  ← ' + c['from_grade'] if c['from_grade'] else ''}"
-                                    f" <span style='color:#666'>({c['date'].strftime('%b %d')})</span></div>",
-                                    unsafe_allow_html=True,
+                                a_color = "var(--up)" if c["action"] in ("upgrade", "init") else "var(--accent)" if c["action"] == "main" else "var(--down)"
+                                from_str = f" ← {c['from_grade']}" if c['from_grade'] else ""
+                                change_items.append(
+                                    f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;"
+                                    f"padding:4px 0;border-bottom:1px solid var(--border)'>"
+                                    f"<span style='color:{a_color};margin-right:6px'>▸</span>"
+                                    f"<span style='color:var(--text);font-weight:600'>{c['firm']}</span>"
+                                    f"<span style='color:var(--muted)'> — {c['to_grade']}{from_str}"
+                                    f" &nbsp;·&nbsp; {c['date'].strftime('%b %d')}</span></div>"
                                 )
+                            st.html(
+                                f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;"
+                                f"letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:6px'>"
+                                f"Recent Actions</div>"
+                                f"{''.join(change_items)}"
+                            )
 
         # --- Pane 2: Timeline + News ---
         with st.expander("🗓️ Timeline & News", expanded=False):
+            render_event_pills(events)
             if isinstance(pos, OptionPosition):
                 render_timeline(events, pos.expiry, "Expiry")
             else:
@@ -769,53 +1128,73 @@ if st.session_state.result is not None:
                 render_timeline(events, stock_horizon, "1 year out")
             finviz_news = entry.get("finviz", {}).get("news", [])
             if finviz_news:
-                st.markdown("**Recent news**")
+                section_header("Recent News")
+                news_items = []
                 for item in finviz_news:
                     date_str = item["date"].strftime("%b %d") if hasattr(item.get("date"), "strftime") else ""
                     source = item.get("source", "")
                     title = item.get("title", "")
                     link = item.get("link", "")
-                    title_html = f"<a href='{link}' target='_blank' style='color:#ccc;text-decoration:none'>{title}</a>" if link else title
-                    st.markdown(
-                        f"<div style='font-size:0.83em;margin:3px 0;padding:4px 0;border-bottom:1px solid #222'>"
-                        f"<span style='color:#555'>{date_str} · {source}</span><br>{title_html}</div>",
-                        unsafe_allow_html=True,
+                    title_html = (
+                        f"<a href='{link}' target='_blank' style='color:var(--text);text-decoration:none;"
+                        f"font-family:IBM Plex Mono,monospace;font-size:0.78rem;line-height:1.5'>{title}</a>"
+                        if link else
+                        f"<span style='font-family:IBM Plex Mono,monospace;font-size:0.78rem;color:var(--text)'>{title}</span>"
                     )
+                    news_items.append(
+                        f"<div style='padding:7px 0;border-bottom:1px solid var(--border)'>"
+                        f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.63rem;"
+                        f"letter-spacing:0.08em;color:var(--muted);margin-bottom:3px'>"
+                        f"{date_str} &nbsp;·&nbsp; {source}</div>"
+                        f"{title_html}</div>"
+                    )
+                st.html(f"<div>{''.join(news_items)}</div>")
 
         # --- Position Greeks (options only, collapsed) ---
         if isinstance(pos, OptionPosition) and entry.get("greeks"):
             g = entry["greeks"]
             iv_note = "" if entry.get("iv_source") == "live" else " *(IV estimated at 35%)*"
-            with st.expander(f"🔢 Position Greeks{iv_note}", expanded=False):
+            with st.expander(f"Position Greeks{iv_note}", expanded=False):
                 explanations = greeks_explanations(g, pos.option_type, pos.position, ticker)
                 greek_rows = [
                     ("Delta",  f"{g.delta:+.4f}",  explanations["Delta"]),
                     ("Gamma",  f"{g.gamma:+.4f}",  explanations["Gamma"]),
-                    ("Theta",  f"${g.theta:+,.2f}/day", explanations["Theta"]),
-                    ("Vega",   f"${g.vega:+,.2f} per 1% IV", explanations["Vega"]),
-                    ("Rho",    f"${g.rho:+,.2f} per 1% rate", explanations["Rho"]),
+                    ("Theta",  f"&#36;{g.theta:+,.2f}/day", explanations["Theta"]),
+                    ("Vega",   f"&#36;{g.vega:+,.2f} per 1% IV", explanations["Vega"]),
+                    ("Rho",    f"&#36;{g.rho:+,.2f} per 1% rate", explanations["Rho"]),
                 ]
                 table_rows = "".join(
                     f"<tr>"
-                    f"<td style='font-weight:700; padding:5px 14px 5px 0; white-space:nowrap'>{name}</td>"
-                    f"<td style='font-family:monospace; padding:5px 14px 5px 0; white-space:nowrap'>{value}</td>"
-                    f"<td style='color:#888; padding:5px 0; font-size:0.88em'>{explanation}</td>"
+                    f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;font-weight:600;"
+                    f"letter-spacing:0.06em;color:var(--text);padding:5px 16px 5px 0;white-space:nowrap'>{name}</td>"
+                    f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.82rem;font-weight:600;"
+                    f"color:var(--accent);padding:5px 16px 5px 0;white-space:nowrap'>{value}</td>"
+                    f"<td style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;"
+                    f"color:var(--muted);padding:5px 0;line-height:1.5'>{explanation}</td>"
                     f"</tr>"
                     for name, value, explanation in greek_rows
                 )
-                st.markdown(
-                    f"<table style='border-collapse:collapse; width:100%; margin-bottom:8px'>{table_rows}</table>",
-                    unsafe_allow_html=True,
+                st.html(
+                    f"<table style='border-collapse:collapse;width:100%'>{table_rows}</table>"
                 )
 
         # --- Scenarios ---
-        st.markdown("### Your options")
+        section_header("Your options")
         if not OPENROUTER_KEY:
-            st.caption("💡 Add OPENROUTER_API_KEY to your .env file to get AI explanations.")
+            st.caption("Add OPENROUTER_API_KEY to .env to enable AI explanations.")
 
         overall = entry.get("overall_analysis", "")
         if overall:
-            st.info(overall.replace("$", r"\$"), icon="💬")
+            st.markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.8rem;"
+                f"line-height:1.65;color:#b0b0c0;background:#0f0f0a;"
+                f"border:1px solid #1e1e22;border-top:2px solid #f0b429;"
+                f"border-radius:2px;padding:12px 16px;margin-bottom:16px'>"
+                f"<div style='font-size:0.62rem;letter-spacing:0.15em;color:#555566;"
+                f"text-transform:uppercase;margin-bottom:8px'>AI Briefing</div>"
+                f"{overall.replace('$', r'&#36;')}</div>",
+                unsafe_allow_html=True,
+            )
 
         for i, scenario in enumerate(scenarios):
             render_scenario_card(scenario, i)
@@ -951,7 +1330,7 @@ with tab_option:
 # Watchlist tab
 # ---------------------------------------------------------------------------
 with tab_watchlist:
-    st.markdown("### 📋 Saved Analysis")
+    section_header("Saved Analysis")
     if st.session_state.watchlist_just_analyzed:
         _analyzed_ticker = st.session_state.watchlist_just_analyzed
         _tab_name = "OPTIONS" if st.session_state.result and isinstance(st.session_state.result["position"], OptionPosition) else "STOCKS"
@@ -960,36 +1339,64 @@ with tab_watchlist:
     rows = load_watchlist()
 
     if not rows:
-        st.info("No saved analyses yet. Analyze a position and click 'Save analysis'.")
+        st.html(
+            "<div style='font-family:IBM Plex Mono,monospace;font-size:0.8rem;color:var(--muted);"
+            "border:1px solid var(--border);border-radius:2px;padding:20px 18px'>"
+            "No saved analyses yet. Analyze a position and click Save Analysis.</div>"
+        )
     else:
         for i, row in enumerate(rows):
             pos_type = row.get("type", "")
             ticker = row.get("ticker", "")
             saved_at = row.get("saved_at", "")
+            pnl_val = row.get("pnl", "")
+            pnl_pct_val = row.get("pnl_pct", "")
+            summary = row.get("overall_analysis", "")
 
             if pos_type == "stock":
-                label = f"**{ticker}** — Stock · {row.get('shares_contracts')} shares @ \${row.get('cost_basis_premium')}"
+                meta = f"Stock &nbsp;·&nbsp; {row.get('shares_contracts')} shares &nbsp;·&nbsp; cost &#36;{row.get('cost_basis_premium')}"
             else:
-                label = (f"**{ticker}** — {row.get('option_type', '').title()} · "
-                         f"Strike \${row.get('strike')} · Expiry {row.get('expiry')} · "
-                         f"{row.get('shares_contracts')} contract(s) @ \${row.get('cost_basis_premium')}")
+                meta = (f"{row.get('option_type','').upper()} &nbsp;·&nbsp; "
+                        f"Strike &#36;{row.get('strike')} &nbsp;·&nbsp; "
+                        f"Exp {row.get('expiry')} &nbsp;·&nbsp; "
+                        f"{row.get('shares_contracts')} contract(s) &nbsp;·&nbsp; &#36;{row.get('cost_basis_premium')} premium")
 
-            with st.container(border=True):
-                col_info, col_analyze, col_delete = st.columns([5, 1, 1])
-                with col_info:
-                    st.markdown(label)
-                    pnl_val = row.get("pnl", "")
-                    pnl_pct_val = row.get("pnl_pct", "")
-                    pnl_display = f"P&L: **{pnl_val}** ({pnl_pct_val})" if pnl_val else ""
-                    caption_parts = [f"Saved {saved_at}"]
-                    if pnl_display:
-                        caption_parts.append(pnl_display)
-                    st.caption(" · ".join(caption_parts))
-                    summary = row.get("overall_analysis", "")
-                    if summary:
-                        st.caption(summary.replace("$", r"\$"))
+            # P&L color
+            pnl_color = "var(--muted)"
+            if pnl_val:
+                pnl_color = "var(--down)" if str(pnl_val).startswith("-") or "(-" in str(pnl_pct_val) else "var(--up)"
+            pnl_html = (
+                f"<span style='color:{pnl_color};font-weight:600'>{pnl_val}</span>"
+                f"<span style='color:{pnl_color};font-size:0.85em'> ({pnl_pct_val})</span>"
+            ) if pnl_val else ""
+
+            summary_html = (
+                f"<div style='font-size:0.75rem;color:var(--muted);font-style:italic;"
+                f"margin-top:6px;line-height:1.55;border-top:1px solid var(--border);padding-top:7px'>"
+                f"{summary.replace('$', '&#36;')}</div>"
+            ) if summary else ""
+
+            with st.container():
+                st.html(
+                    f"<div style='border:1px solid var(--border);border-left:3px solid var(--border);"
+                    f"border-radius:2px;padding:14px 16px 10px;background:var(--surface);margin-bottom:2px'>"
+                    f"<div style='display:flex;align-items:baseline;gap:10px;margin-bottom:4px'>"
+                    f"<span style='font-family:Syne,sans-serif;font-size:1.05rem;font-weight:700;"
+                    f"color:var(--text)'>{ticker}</span>"
+                    f"<span style='font-family:IBM Plex Mono,monospace;font-size:0.68rem;"
+                    f"color:var(--muted);letter-spacing:0.06em'>{meta}</span>"
+                    f"</div>"
+                    f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.72rem;"
+                    f"color:var(--muted);margin-bottom:2px'>"
+                    f"Saved {saved_at}"
+                    f"{'&nbsp;&nbsp;·&nbsp;&nbsp;' + pnl_html if pnl_html else ''}"
+                    f"</div>"
+                    f"{summary_html}"
+                    f"</div>"
+                )
+                col_analyze, col_delete, _ = st.columns([1, 1, 6])
                 with col_analyze:
-                    if st.button("Analyze", key=f"analyze_{i}", use_container_width=True):
+                    if st.button("Re-analyze", key=f"analyze_{i}", use_container_width=True):
                         position = row_to_position(row)
                         if position:
                             with st.spinner(f"Analyzing {ticker}..."):
@@ -1008,3 +1415,4 @@ with tab_watchlist:
                             st.rerun()
                         else:
                             st.error("Could not delete.")
+                st.html("<div style='margin-bottom:8px'></div>")
